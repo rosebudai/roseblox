@@ -5,6 +5,17 @@
 
 Roseblox is a lightweight, modern, and extensible game engine for creating 3D experiences on the web. Built on top of industry-leading libraries like **Three.js**, **Rapier**, and **Miniplex**, it's designed with a "buildless" philosophy that enables rapid prototyping and iteration.
 
+## Why Roseblox?
+
+The primary motivation for Roseblox is to create an **AI-friendly game engine** that excels at AI-assisted 3D game development. Traditional game engines often have complex abstractions and implicit conventions that make them challenging for AI code generation. Roseblox addresses this with:
+
+- **Clear, Predictable Patterns** - Consistent ECS architecture that AI can easily understand and extend
+- **Explicit Dependencies** - All system dependencies are clearly defined, making it easy for AI to understand data flow
+- **Self-Documenting Code** - Structure encourages descriptive system names and clear component definitions
+- **Minimal Magic** - No hidden behaviors or implicit conventions that could confuse AI-generated code
+- **Composable Systems** - Small, focused systems that AI can combine to create complex behaviors
+- **Human-Readable Builds** - The build process preserves readable code without minification, making debugging and AI analysis straightforward
+
 ## Features
 
 - 🎮 **ECS Architecture** - Entity-Component-System pattern with Miniplex
@@ -14,7 +25,6 @@ Roseblox is a lightweight, modern, and extensible game engine for creating 3D ex
 - 🎯 **Input Management** - Keyboard, mouse, and pointer lock support
 - 🔧 **Modular Systems** - Priority-based system execution
 - 🚀 **Zero Build Step** - Uses native ES modules via importmaps
-- 📦 **Lightweight** - ~40KB npm package size
 
 ## Installation
 
