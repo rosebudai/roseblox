@@ -1,0 +1,24 @@
+{
+  "name": "roseblox-game-engine",
+  "version": "0.0.1",
+  "description": "Javascript game engine.",
+  "main": "src/index.js",
+  "type": "module",
+  "scripts": {
+    "build": "esbuild src/index.js --bundle --format=esm --external:three --external:miniplex --external:camera-controls --external:@dimforge/rapier3d-compat --outfile=build/roseblox-game-engine.js",
+    "docs": "mkdir -p build/docs && jsdoc -c jsdoc.json",
+    "build:all": "npm run build && npm run docs"
+  },
+  "keywords": [],
+  "author": "mike.liu.dev@gmail.com",
+  "peerDependencies": {
+    "@dimforge/rapier3d-compat": "*",
+    "camera-controls": "*",
+    "miniplex": "*",
+    "three": "*"
+  },
+  "devDependencies": {
+    "esbuild": "^0.20.2",
+    "jsdoc-to-markdown": "^9.1.1"
+  }
+}

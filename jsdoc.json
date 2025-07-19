@@ -1,0 +1,29 @@
+{
+  "source": {
+    "include": [
+      "src"
+    ],
+    "includePattern": ".+\\.js(doc|x)?$",
+    "excludePattern": "(^|\\/|\\\\)_"
+  },
+  "opts": {
+    "destination": "build/docs",
+    "encoding": "utf8",
+    "private": true,
+    "recurse": true,
+    "readme": "README.md"
+  },
+  "plugins": [],
+  "templates": {
+    "cleverLinks": false,
+    "monospaceLinks": false
+  },
+  "docdash": {
+    "static": true,
+    "sort": true
+  },
+  "sourceType": "module",
+  "tags": {
+    "allowUnknownTags": true
+  }
+}

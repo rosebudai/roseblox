@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>3D Adventure</title>
+    <script type="importmap">
+      {
+        "imports": {
+          "three": "https://esm.sh/three@0.163.0",
+          "three/": "https://esm.sh/three@0.163.0/",
+          "@dimforge/rapier3d-compat": "https://esm.sh/@dimforge/rapier3d-compat@0.17.3",
+          "miniplex": "https://esm.sh/miniplex@2.0.0",
+          "camera-controls": "https://esm.sh/camera-controls@2.10.1?external=three",
+          "simplex-noise": "https://esm.sh/simplex-noise@4.0.1",
+          "roseblox-game-engine": "./roseblox-game-engine.js"
+        }
+      }
+    </script>
+    <style>
+      body {
+        margin: 0;
+        padding: 0;
+        overflow: hidden;
+        background: #1a1a1a;
+        font-family: "Arial", sans-serif;
+      }
+      canvas {
+        display: block;
+      }
+      #renderDiv {
+        width: 100vw;
+        height: 100vh;
+        position: absolute;
+        top: 0;
+        left: 0;
+      }
+    </style>
+  </head>
+  <body>
+    <canvas id="game-canvas"></canvas>
+    <!-- UI containers -->
+    <div id="uiContainer">
+      <div id="statsPanel"></div>
+    </div>
+    <!-- Engine entrypoint -->
+    <script type="module" src="main.js"></script>
+  </body>
+</html>

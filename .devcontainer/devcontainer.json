@@ -1,0 +1,51 @@
+{
+    "name": "Official Templates Claude Code Sandbox",
+    "build": {
+        "dockerfile": "../Dockerfile.devcontainer"
+    },
+    "overrideCommand": true,
+    "remoteEnv": {
+        "NODE_OPTIONS": "--max-old-space-size=4096"
+    },
+    "mounts": [
+        // node_modules performance volume
+        "source=${localWorkspaceFolderBasename}-node-modules,target=/roseblox/node_modules,type=volume",
+        // bash command history persistence
+        "source=devcontainer-history,target=/commandhistory,type=volume",
+        // for persistent user configuration of claude
+        "source=claude-code-config,target=/root/.claude,type=volume"
+    ],
+    "workspaceFolder": "/roseblox",
+    "workspaceMount": "source=${localWorkspaceFolder},target=/roseblox,type=bind,consistency=cached",
+    "customizations": {
+        "vscode": {
+            "extensions": [
+                "dbaeumer.vscode-eslint",
+                "esbenp.prettier-vscode",
+                "eamodio.gitlens",
+                "github.vscode-github-actions",
+                "github.vscode-pull-request-github",
+                "ms-azuretools.vscode-docker",
+                "ms-python.python"
+            ],
+            "settings": {
+                "editor.formatOnSave": true,
+                "editor.defaultFormatter": "esbenp.prettier-vscode",
+                "editor.codeActionsOnSave": {
+                    "source.fixAll.eslint": "always",
+                    "source.removeUnusedImports": "always"
+                },
+                "search.exclude": {
+                    "**/.git": true,
+                    "**/.svn": true,
+                    "**/.hg": true,
+                    "**/CVS": true,
+                    "**/.DS_Store": true,
+                    "**/Thumbs.db": true,
+                    ".next": true,
+                    "node_modules": true
+                }
+            }
+        }
+    }
+}
