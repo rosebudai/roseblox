@@ -1,0 +1,49 @@
+# Examples - users can find these on GitHub
+examples/
+
+# Development files
+.gitignore
+.claude/
+*.log
+npm-debug.log*
+
+# Documentation source
+jsdoc.json
+docs/
+
+# Development container
+Dockerfile.devcontainer
+
+# OS files
+.DS_Store
+*.AppleDouble
+*.LSOverride
+
+# Editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Build artifacts that aren't the main bundle
+build/docs/
+
+# Test files (when added)
+**/*.test.js
+**/*.spec.js
+test/
+tests/
+__tests__/
+
+# CI/CD files (when added)
+.github/
+.travis.yml
+.circleci/
+
+# Keep only the essential files for npm package:
+# - src/ (source code)
+# - build/roseblox-game-engine.js (built bundle)
+# - package.json
+# - README.md
+# - LICENSE
+# - CHANGELOG.md
