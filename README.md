@@ -1,8 +1,92 @@
-# Rosebud: A Three.js Game Engine
+# Roseblox: A Three.js Game Engine
 
-Rosebud is a lightweight, modern, and extensible game engine for creating 3D experiences on the web. It is built on top of industry-leading libraries like **Three.js**, **Rapier**, and **Miniplex**, and designed with a "buildless" philosophy that enables rapid prototyping and iteration.
+[![npm version](https://img.shields.io/npm/v/roseblox-game-engine.svg)](https://www.npmjs.com/package/roseblox-game-engine)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-Its core architecture is heavily influenced by professional game development patterns, but with a focus on simplicity and extensibility, making it an ideal foundation for both beginners and experienced developers. A primary design goal is to provide a clean, logical structure that is easy for AI-assisted development workflows to understand and extend.
+Roseblox is a lightweight, modern, and extensible game engine for creating 3D experiences on the web. Built on top of industry-leading libraries like **Three.js**, **Rapier**, and **Miniplex**, it's designed with a "buildless" philosophy that enables rapid prototyping and iteration.
+
+## Features
+
+- 🎮 **ECS Architecture** - Entity-Component-System pattern with Miniplex
+- 🌐 **Physics Integration** - Built-in Rapier3D physics engine
+- 🎨 **Three.js Rendering** - Full access to Three.js capabilities
+- 📷 **Camera Controls** - Smooth camera system with collision detection
+- 🎯 **Input Management** - Keyboard, mouse, and pointer lock support
+- 🔧 **Modular Systems** - Priority-based system execution
+- 🚀 **Zero Build Step** - Uses native ES modules via importmaps
+- 📦 **Lightweight** - ~40KB npm package size
+
+## Installation
+
+### Via NPM
+
+```bash
+npm install roseblox-game-engine
+```
+
+### Via CDN
+
+```html
+<script type="importmap">
+  {
+    "imports": {
+      "three": "https://esm.sh/three@0.163.0",
+      "three/": "https://esm.sh/three@0.163.0/",
+      "@dimforge/rapier3d-compat": "https://esm.sh/@dimforge/rapier3d-compat@0.17.3",
+      "miniplex": "https://esm.sh/miniplex@2.0.0",
+      "camera-controls": "https://esm.sh/camera-controls@2.10.1?external=three",
+      "roseblox-game-engine": "https://esm.sh/roseblox-game-engine@0.0.1"
+    }
+  }
+</script>
+```
+
+## Quick Start
+
+```javascript
+import { engine } from "roseblox-game-engine";
+
+// Register a simple rotating cube system
+engine.registerSystem("rotate-cube", {
+  setup: (world, dependencies) => {
+    // Create a cube entity
+    const { factory } = dependencies.renderer;
+    const cube = world.add({
+      transform: { position: { x: 0, y: 1, z: 0 } },
+      renderable: {
+        object3D: factory.createBox({
+          width: 1,
+          height: 1,
+          depth: 1,
+          color: 0x00ff00,
+        }),
+      },
+    });
+  },
+  update: (world, dependencies, deltaTime) => {
+    // Rotate all renderables
+    for (const entity of world.with("renderable", "transform")) {
+      entity.renderable.object3D.rotation.y += deltaTime;
+    }
+  },
+  priority: 50,
+});
+
+// Initialize the engine
+await engine.init({
+  canvas: document.getElementById("game-canvas"),
+});
+```
+
+## Example
+
+Check out the included adventure game example:
+
+```bash
+cd examples/adventure
+python3 -m http.server 8001
+# Navigate to http://localhost:8001
+```
 
 ## Engine Scope
 
@@ -60,6 +144,21 @@ Built on `peerDependencies` provided via `importmap`:
 - **Rapier**: Physics with registered body factories
 - **camera-controls**: Camera system via resource dependency
 
-## Tutorials & Examples
+## Browser Requirements
 
-See [Examples](examples/) directory.
+Roseblox requires a modern browser with ES modules support:
+
+- Chrome 61+
+- Firefox 60+
+- Safari 11+
+- Edge 79+
+
+## Contributing
+
+We welcome contributions! Please see our [Contributing Guide](CONTRIBUTING.md) for details.
+
+## License
+
+MIT © 2025 mike.liu.dev@gmail.com
+
+See [LICENSE](LICENSE) for details.
