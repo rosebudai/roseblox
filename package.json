@@ -12,6 +12,14 @@
   "keywords": [],
   "author": "mike.liu.dev@gmail.com",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/rosebudai/roseblox.git"
+  },
+  "homepage": "https://github.com/rosebudai/roseblox#readme",
+  "bugs": {
+    "url": "https://github.com/rosebudai/roseblox/issues"
+  },
   "peerDependencies": {
     "@dimforge/rapier3d-compat": "*",
     "camera-controls": "*",
