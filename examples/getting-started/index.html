@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Getting Started</title>
+    <script type="importmap">
+      {
+        "imports": {
+          "three": "https://esm.sh/three@0.163.0",
+          "three/": "https://esm.sh/three@0.163.0/",
+          "@dimforge/rapier3d-compat": "https://esm.sh/@dimforge/rapier3d-compat@0.17.3",
+          "miniplex": "https://esm.sh/miniplex@2.0.0",
+          "camera-controls": "https://esm.sh/camera-controls@2.10.1?external=three",
+          "roseblox-game-engine": "https://esm.sh/roseblox-game-engine@0.0.1?external=three,miniplex,camera-controls,@dimforge/rapier3d-compat"
+        }
+      }
+    </script>
+    <style>
+      body {
+        margin: 0;
+        padding: 0;
+        overflow: hidden;
+        background: #1a1a1a;
+        font-family: "Arial", sans-serif;
+      }
+      canvas {
+        display: block;
+      }
+      #game-canvas {
+        width: 100vw;
+        height: 100vh;
+      }
+    </style>
+  </head>
+  <body>
+    <canvas id="game-canvas"></canvas>
+    <!-- Engine entrypoint -->
+    <script type="module" src="main.js"></script>
+  </body>
+</html>

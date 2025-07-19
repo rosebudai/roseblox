@@ -28,55 +28,122 @@ The primary motivation for Roseblox is to create an **AI-friendly game engine** 
 
 ## Installation
 
-### Via NPM
-
-```bash
-npm install roseblox-game-engine
-```
-
-### Via CDN
+Include the game engine in your importmap. It uses peer dependencies so also include those. For example:
 
 ```html
-<script type="importmap">
-  {
-    "imports": {
-      "three": "https://esm.sh/three@0.163.0",
-      "three/": "https://esm.sh/three@0.163.0/",
-      "@dimforge/rapier3d-compat": "https://esm.sh/@dimforge/rapier3d-compat@0.17.3",
-      "miniplex": "https://esm.sh/miniplex@2.0.0",
-      "camera-controls": "https://esm.sh/camera-controls@2.10.1?external=three",
-      "roseblox-game-engine": "https://esm.sh/roseblox-game-engine@0.0.1"
-    }
-  }
-</script>
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Getting Started</title>
+    <script type="importmap">
+      {
+        "imports": {
+          "three": "https://esm.sh/three@0.163.0",
+          "three/": "https://esm.sh/three@0.163.0/",
+          "@dimforge/rapier3d-compat": "https://esm.sh/@dimforge/rapier3d-compat@0.17.3",
+          "miniplex": "https://esm.sh/miniplex@2.0.0",
+          "camera-controls": "https://esm.sh/camera-controls@2.10.1?external=three",
+          "roseblox-game-engine": "https://esm.sh/roseblox-game-engine@0.0.1?external=three,miniplex,camera-controls,@dimforge/rapier3d-compat"
+        }
+      }
+    </script>
+    <style>
+      body {
+        margin: 0;
+        padding: 0;
+        overflow: hidden;
+        background: #1a1a1a;
+        font-family: "Arial", sans-serif;
+      }
+      canvas {
+        display: block;
+      }
+      #game-canvas {
+        width: 100vw;
+        height: 100vh;
+      }
+    </style>
+  </head>
+  <body>
+    <canvas id="game-canvas"></canvas>
+    <!-- Engine entrypoint -->
+    <script type="module" src="main.js"></script>
+  </body>
+</html>
 ```
 
-## Quick Start
+Then in main.js:
 
-```javascript
-import { engine } from "roseblox-game-engine";
+```js
+import { engine, CoreComponents } from "roseblox-game-engine";
+import * as THREE from "three";
 
-// Register a simple rotating cube system
-engine.registerSystem("rotate-cube", {
-  setup: (world, dependencies) => {
-    // Create a cube entity
-    const { factory } = dependencies.renderer;
-    const cube = world.add({
-      transform: { position: { x: 0, y: 1, z: 0 } },
-      renderable: {
-        object3D: factory.createBox({
-          width: 1,
-          height: 1,
-          depth: 1,
-          color: 0x00ff00,
-        }),
-      },
+const { createTransform, createRenderableMetadata } = CoreComponents;
+
+// Register a setup system to create our scene
+engine.registerSetup("create-scene", {
+  dependencies: ["renderer"],
+  init: (world, dependencies) => {
+    // Create a ground plane
+    world.add({
+      transform: createTransform(new THREE.Vector3(0, -0.5, 0)),
+      renderable: createRenderableMetadata(
+        "procedural",
+        { type: "box", width: 20, height: 1, depth: 20 },
+        { type: "standard", color: 0x606060 }
+      ),
     });
+
+    // Create a few colorful cubes
+    const cubePositions = [
+      { x: -2, z: 0, color: 0xff0000 }, // Red
+      { x: 0, z: 0, color: 0x00ff00 }, // Green
+      { x: 2, z: 0, color: 0x0000ff }, // Blue
+    ];
+
+    for (const pos of cubePositions) {
+      world.add({
+        transform: createTransform(new THREE.Vector3(pos.x, 1.5, pos.z)),
+        renderable: createRenderableMetadata(
+          "procedural",
+          { type: "box", width: 0.8, height: 0.8, depth: 0.8 },
+          {
+            type: "standard",
+            color: pos.color,
+            roughness: 0.5,
+          }
+        ),
+      });
+    }
   },
+});
+
+// Camera positioning must be done in a runtime system, not a setup system
+// This is because the camera resource is created by the engine's internal setup systems
+let cameraPositioned = false;
+engine.registerSystem("position-camera-once", {
+  dependencies: ["camera"],
   update: (world, dependencies, deltaTime) => {
-    // Rotate all renderables
+    if (!cameraPositioned) {
+      const { controls } = dependencies.camera;
+      controls.setLookAt(5, 5, 5, 0, 0, 0);
+      cameraPositioned = true;
+    }
+  },
+  priority: 80, // Run after camera system
+});
+
+// Register a runtime system to rotate cubes
+engine.registerSystem("rotate-cubes", {
+  dependencies: [],
+  update: (world, dependencies, deltaTime) => {
+    // Rotate all cubes (not the ground)
     for (const entity of world.with("renderable", "transform")) {
-      entity.renderable.object3D.rotation.y += deltaTime;
+      if (entity.renderable.mesh && entity.transform.position.y > 0) {
+        entity.renderable.mesh.rotation.y += deltaTime;
+      }
     }
   },
   priority: 50,
@@ -90,7 +157,9 @@ await engine.init({
 
 ## Example
 
-Check out the included adventure game example:
+The getting started example is in [examples/getting-started](examples/getting-started/)
+
+Check out the included adventure game example for a more advanced example:
 
 ```bash
 cd examples/adventure

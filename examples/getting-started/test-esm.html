@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Test ESM Loading</title>
+  </head>
+  <body>
+    <h1>Check console for module loading info</h1>
+    <script type="module">
+      // Test different esm.sh configurations
+      console.log("Testing esm.sh module loading...");
+      
+      // Load and check what esm.sh returns
+      import("https://esm.sh/roseblox-game-engine@0.0.1").then(module => {
+        console.log("Default import:", module);
+        console.log("Module keys:", Object.keys(module));
+      });
+      
+      // Check the actual URL esm.sh redirects to
+      fetch("https://esm.sh/roseblox-game-engine@0.0.1", { 
+        method: 'HEAD',
+        redirect: 'manual' 
+      }).then(response => {
+        console.log("ESM.sh redirects to:", response.headers.get('location'));
+      });
+    </script>
+  </body>
+</html>
