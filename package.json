@@ -11,6 +11,7 @@
   },
   "keywords": [],
   "author": "mike.liu.dev@gmail.com",
+  "license": "MIT",
   "peerDependencies": {
     "@dimforge/rapier3d-compat": "*",
     "camera-controls": "*",
