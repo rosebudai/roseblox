@@ -1,6 +1,6 @@
 {
   "name": "roseblox-game-engine",
-  "version": "0.0.1",
+  "version": "0.0.2",
   "description": "Javascript game engine.",
   "main": "src/index.js",
   "type": "module",
