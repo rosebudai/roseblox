@@ -1,22 +1,23 @@
 # 3D Adventure Template
 
-Base template for Adventure games made on Rosebud utilizing the roseblox game engine.
+Base template for Adventure games made on Rosebud.
+
+## Context
+
+Addresses the following prompts:
+
+- "Open world adventure with treasure hunting"
+- "Create an adventure game with puzzles and combat"
+- "Quest-based adventure in a fantasy world"
 
 ## Development
 
-### Serve using basic Python webserver
-
-```bash
-python3 -m http.server 8001
-# navigate to localhost:8001 in your preferred browser
-```
-
 ### Building the Game Engine
 
-If you make changes to the game engine, rebuild it. It's symlinked in the current directory.
+If you make changes to the roseblox-game-engine, you need to rebuild it:
 
 ```bash
-cd ../../
+cd ../roseblox-game-engine
 npm run build:all
 ```
 

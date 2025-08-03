@@ -8,7 +8,7 @@
 import {
   updateDebugCollisionStarted,
   updateDebugCollisionEnded,
-} from "./debugCoordinateSystem.js";
+} from "../../debug/debugCoordinateSystem.js";
 
 /**
  * The main system function. It subscribes to the event bus and does not need
