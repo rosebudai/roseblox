@@ -12,18 +12,20 @@ import { GAME_CONFIG } from "./config.js";
 import { engine } from "roseblox-game-engine";
 
 // Import game-specific setup functions. These now handle their own factory registrations.
-import { setupGamePlayer } from "./playerSetup.js";
-import { setupGameTerrain } from "./terrainSetup.js";
-import { setupCollectibles } from "./collectibleSetup.js";
-import { setupCollisionTests } from "./collisionTestSetup.js";
+import { setupGamePlayer } from "../features/player/playerSetup.js";
+import { setupNaturalTerrain } from "../features/terrain/naturalTerrainSetup.js";
+import { setupSkybox } from "../features/environment/skyboxSetup.js";
+// Commented out: These imports are kept as examples but not used
+// import { setupCollectibles } from "../features/collectibles/collectibleSetup.js";
+// import { setupCollisionTests } from "../debug/collisionTestSetup.js";
 import {
   setupDebugCoordinateDisplay,
   debugCoordinateSystem,
-} from "./debugCoordinateSystem.js";
+} from "../debug/debugCoordinateSystem.js";
 
 // Import game-specific runtime systems
-import { playerMovementSystem } from "./playerMovementSystem.js";
-import { collectibleSystemSetup } from "./collectibleSystem.js";
+import { playerMovementSystem } from "../features/player/playerMovementSystem.js";
+import { collectibleSystemSetup } from "../features/collectibles/collectibleSystem.js";
 
 async function main(canvas) {
   // Register game-specific setup logic. These functions will register factories
@@ -31,7 +33,8 @@ async function main(canvas) {
   engine.registerSetup("game-terrain-setup", {
     dependencies: ["physics", "renderer"],
     init: (world, dependencies) => {
-      const terrainResource = setupGameTerrain(world, dependencies);
+      // Setup the natural terrain system
+      const terrainResource = setupNaturalTerrain(world, dependencies);
       engine.addResource("terrain", terrainResource);
     },
   });
@@ -41,15 +44,22 @@ async function main(canvas) {
     init: (world, deps) => setupGamePlayer(world, deps, GAME_CONFIG),
   });
 
-  engine.registerSetup("game-collectible-setup", {
-    dependencies: ["terrain"],
-    init: (world, deps) => setupCollectibles(world, deps),
+  engine.registerSetup("skybox-setup", {
+    dependencies: ["renderer", "assets"],
+    init: (world, deps) => setupSkybox(world, deps),
   });
 
-  engine.registerSetup("collision-test-setup", {
-    dependencies: ["terrain", "physics"],
-    init: (world, deps) => setupCollisionTests(world, deps),
-  });
+  // Commented out: Collectible setup - kept as an example but not registered
+  // engine.registerSetup("game-collectible-setup", {
+  //   dependencies: ["terrain"],
+  //   init: (world, deps) => setupCollectibles(world, deps),
+  // });
+
+  // Commented out: Collision test setup - kept as an example but not registered
+  // engine.registerSetup("collision-test-setup", {
+  //   dependencies: ["terrain", "physics"],
+  //   init: (world, deps) => setupCollisionTests(world, deps),
+  // });
 
   engine.registerSetup("collectible-system-setup", {
     dependencies: ["eventBus"],
@@ -58,7 +68,7 @@ async function main(canvas) {
 
   engine.registerSetup("debug-coordinate-setup", {
     dependencies: [],
-    init: (world, deps) => setupDebugCoordinateDisplay(world, GAME_CONFIG),
+    init: (world) => setupDebugCoordinateDisplay(world, GAME_CONFIG),
   });
 
   // Register game-specific runtime systems with their priorities.

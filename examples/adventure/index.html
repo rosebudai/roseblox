@@ -4,6 +4,8 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>3D Adventure</title>
+    <!-- IMPORTANT: The <script type="importmap"> block must be valid JSON.
+       Do NOT add any comments (// or /* */), trailing commas, or other non‐JSON syntax inside it. -->
     <script type="importmap">
       {
         "imports": {
@@ -44,6 +46,11 @@
       <div id="statsPanel"></div>
     </div>
     <!-- Engine entrypoint -->
-    <script type="module" src="main.js"></script>
+    <script type="module" src="core/main.js"></script>
+    <!-- Rosebud platform scripts -->
+    <script src="https://storage.googleapis.com/rosebud_staticfiles/ChatManager.js"></script>
+    <script src="https://storage.googleapis.com/rosebud_staticfiles/ImageGenerator.js"></script>
+    <script src="https://storage.googleapis.com/rosebud_staticfiles/ProgressLogger.js"></script>
+    <script src="https://storage.googleapis.com/rosebud_staticfiles/OGP.js"></script>
   </body>
 </html>

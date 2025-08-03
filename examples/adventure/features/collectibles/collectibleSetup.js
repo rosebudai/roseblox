@@ -6,7 +6,7 @@
  */
 import * as THREE from "three";
 import { CoreComponents } from "roseblox-game-engine";
-import { GAME_CONFIG } from "./config.js";
+import { GAME_CONFIG } from "../../core/config.js";
 
 const { createTransform, createRenderableMetadata, createTriggerZone } =
   CoreComponents;
