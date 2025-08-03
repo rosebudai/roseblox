@@ -39,6 +39,7 @@ import { setupAssetManager } from "./resources/assetManager.js";
 import { setupInput } from "./resources/inputSetup.js";
 import { setupLighting } from "./resources/lightingSetup.js";
 import { setupCamera } from "./resources/cameraSetup.js";
+import { setupSkybox } from "./resources/skyboxSetup.js";
 
 // Core Engine Runtime Systems
 import { inputSystem } from "./systems/inputSystem.js";
@@ -430,6 +431,14 @@ export class GameSystems {
           config
         );
         this.addResource("lighting", lightingResources);
+      },
+    });
+
+    this.registerSetup("skybox", {
+      dependencies: ["renderer"],
+      init: async (world, dependencies, config) => {
+        const skyboxResources = await setupSkybox(world, dependencies, config);
+        this.addResource("skybox", skyboxResources);
       },
     });
 
