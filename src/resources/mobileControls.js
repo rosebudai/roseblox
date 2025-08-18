@@ -20,17 +20,13 @@ export class MobileControls {
     // Input state
     this.joystick = { x: 0, z: 0 };
     this.buttonStates = new Map();
-    this.cameraDelta = null;
     
     // Touch tracking
     this.touches = new Map();
     this.joystickTouch = null;
-    this.cameraTouch = null;
-    this.lastCameraPos = null;
     
     // Configuration
     this.joystickDeadZone = 0.2;
-    this.cameraSensitivity = 0.003;
     
     // Bind methods
     this.handleTouchStart = this.handleTouchStart.bind(this);
@@ -240,42 +236,32 @@ export class MobileControls {
   }
 
   handleTouchStart(event) {
-    event.preventDefault();
-    
+    // Only prevent default for our control elements
     for (const touch of event.changedTouches) {
       const element = document.elementFromPoint(touch.clientX, touch.clientY);
       
       if (element && element.closest('.roseblox-joystick-base')) {
+        event.preventDefault();
         this.joystickTouch = touch.identifier;
         this.updateJoystick(touch);
       } else if (element && element.closest('.roseblox-button')) {
+        event.preventDefault();
         const button = element.closest('.roseblox-button');
         const action = button.dataset.action;
         this.setButtonState(action, true);
         this.touches.set(touch.identifier, { type: 'button', action });
-      } else if (!element || !element.closest('.roseblox-mobile-controls')) {
-        // Camera touch - anywhere not on controls
-        this.cameraTouch = touch.identifier;
-        this.lastCameraPos = { x: touch.clientX, y: touch.clientY };
-        this.touches.set(touch.identifier, { type: 'camera' });
       }
+      // Remove camera touch handling - let camera-controls handle it
     }
   }
 
   handleTouchMove(event) {
-    event.preventDefault();
-    
     for (const touch of event.changedTouches) {
       if (touch.identifier === this.joystickTouch) {
+        event.preventDefault();
         this.updateJoystick(touch);
-      } else if (touch.identifier === this.cameraTouch && this.lastCameraPos) {
-        // Calculate camera delta
-        const deltaX = touch.clientX - this.lastCameraPos.x;
-        const deltaY = touch.clientY - this.lastCameraPos.y;
-        
-        this.cameraDelta = { x: deltaX, y: deltaY };
-        this.lastCameraPos = { x: touch.clientX, y: touch.clientY };
       }
+      // Remove camera touch handling - let camera-controls handle it
     }
   }
 
@@ -286,10 +272,6 @@ export class MobileControls {
       if (touch.identifier === this.joystickTouch) {
         this.resetJoystick();
         this.joystickTouch = null;
-      } else if (touch.identifier === this.cameraTouch) {
-        this.cameraTouch = null;
-        this.lastCameraPos = null;
-        this.cameraDelta = null;
       } else if (touchData && touchData.type === 'button') {
         this.setButtonState(touchData.action, false);
       }
@@ -371,11 +353,6 @@ export class MobileControls {
     }
   }
 
-  getCameraDelta() {
-    const delta = this.cameraDelta;
-    this.cameraDelta = null; // Reset after reading
-    return delta;
-  }
 
   destroy() {
     if (!this.enabled) return;
