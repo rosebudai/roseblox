@@ -38,6 +38,5 @@ export function cameraUpdateSystem(world, { camera }, deltaTime) {
   }
 
   // 2. Update the camera controls library to process input and transitions.
-  // Touch controls are handled natively by camera-controls library
   cameraControls.update(deltaTime);
 }

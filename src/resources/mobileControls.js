@@ -251,7 +251,6 @@ export class MobileControls {
         this.setButtonState(action, true);
         this.touches.set(touch.identifier, { type: 'button', action });
       }
-      // Remove camera touch handling - let camera-controls handle it
     }
   }
 
@@ -261,7 +260,6 @@ export class MobileControls {
         event.preventDefault();
         this.updateJoystick(touch);
       }
-      // Remove camera touch handling - let camera-controls handle it
     }
   }
 

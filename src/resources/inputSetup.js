@@ -88,9 +88,8 @@ export async function setupInput() {
   let mobileControls = null;
   try {
     mobileControls = new MobileControls();
-    const initialized = mobileControls.init();
-    if (!initialized) {
-      mobileControls = null; // Not a mobile device
+    if (!mobileControls.init()) {
+      mobileControls = null;
     }
   } catch (error) {
     console.warn('Failed to initialize mobile controls:', error);
