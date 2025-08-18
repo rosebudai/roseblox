@@ -3,15 +3,19 @@
  *
  * This system is responsible for updating the camera's position and target
  * each frame, typically to follow a player entity.
+ * Camera touch controls are handled natively by camera-controls library.
  */
 
 /**
  * Updates the camera's target and processes its controls.
  * @param {World} world - The ECS world instance.
- * @param {Object} cameraControls - The camera-controls instance.
+ * @param {Object} context - The dependency context.
+ * @param {Object} context.camera - The camera resources.
  * @param {number} deltaTime - The time elapsed since the last frame.
  */
-export function cameraUpdateSystem(world, cameraControls, deltaTime) {
+export function cameraUpdateSystem(world, { camera }, deltaTime) {
+  const cameraControls = camera?.controls;
+  
   if (!cameraControls) {
     throw new Error(
       "cameraUpdateSystem: Camera controls not provided via dependency injection"

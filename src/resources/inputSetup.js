@@ -3,7 +3,10 @@
  *
  * Handles initialization of the input system.
  * Self-contained setup that returns resources needed by other systems.
+ * Includes mobile controls support for touch devices.
  */
+
+import { MobileControls } from './mobileControls.js';
 
 // Raw input state management - hardware agnostic
 const rawInputState = {
@@ -81,6 +84,18 @@ export async function setupInput() {
     rawInputState.mouseDown = false;
   });
 
+  // Mobile controls setup
+  let mobileControls = null;
+  try {
+    mobileControls = new MobileControls(rawInputState);
+    if (!mobileControls.init()) {
+      mobileControls = null;
+    }
+  } catch (error) {
+    console.warn('Failed to initialize mobile controls:', error);
+    mobileControls = null;
+  }
+
   // The new input resource object
   const inputResource = {
     isActionActive: (action) => rawInputState[action] || false,
@@ -94,6 +109,9 @@ export async function setupInput() {
       // Original polarity: forward should be -Z.
       z: (rawInputState.backward ? 1 : 0) - (rawInputState.forward ? 1 : 0),
     }),
+    
+    // Expose mobile controls for camera system
+    getMobileControls: () => mobileControls,
   };
 
   return inputResource;

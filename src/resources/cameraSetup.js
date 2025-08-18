@@ -8,6 +8,7 @@
 
 import * as THREE from "three";
 import CameraControls from "camera-controls";
+import { isMobileDevice } from './mobileDetection.js';
 
 // Install camera controls (like how physicsSetup calls RAPIER.init())
 CameraControls.install({ THREE });
@@ -45,6 +46,31 @@ export async function setupCamera(world, { renderer }, config = {}) {
   controls.azimuthRotateSpeed = lookSensitivity;
   controls.polarRotateSpeed = lookSensitivity;
   controls.dollySpeed = zoomSensitivity;
+
+  // Configure touch controls for mobile
+  if (isMobileDevice()) {
+    // Configure touch actions for mobile
+    controls.touches = {
+      one: CameraControls.ACTION.TOUCH_ROTATE,
+      two: CameraControls.ACTION.TOUCH_DOLLY_TRUCK,
+      three: CameraControls.ACTION.TOUCH_TRUCK
+    };
+
+    // Disable mouse/pointer controls on mobile
+    controls.mouseButtons = {
+      left: CameraControls.ACTION.NONE,
+      middle: CameraControls.ACTION.NONE,
+      right: CameraControls.ACTION.NONE,
+      wheel: CameraControls.ACTION.NONE
+    };
+  } else {
+    // Desktop mouse controls (default behavior)
+    controls.touches = {
+      one: CameraControls.ACTION.NONE,
+      two: CameraControls.ACTION.NONE,
+      three: CameraControls.ACTION.NONE
+    };
+  }
 
   // Set initial position by iterating through the world to find the follow target.
   for (const entity of world) {
