@@ -8,9 +8,10 @@
 import { isMobileDevice, isLandscape } from './mobileDetection.js';
 
 export class MobileControls {
-  constructor() {
+  constructor(rawInputState) {
     this.enabled = false;
     this.container = null;
+    this.rawInputState = rawInputState;
     
     // Control elements
     this.joystickBase = null;
@@ -303,14 +304,26 @@ export class MobileControls {
     const normalizedX = clampedX / maxDistance;
     const normalizedY = clampedY / maxDistance;
     
-    // Apply dead zone
+    // Apply dead zone and update input state directly
     const magnitude = Math.sqrt(normalizedX * normalizedX + normalizedY * normalizedY);
     if (magnitude < this.joystickDeadZone) {
       this.joystick.x = 0;
       this.joystick.z = 0;
+      // Clear movement state when in dead zone
+      this.rawInputState.left = false;
+      this.rawInputState.right = false;
+      this.rawInputState.forward = false;
+      this.rawInputState.backward = false;
     } else {
       this.joystick.x = normalizedX;
       this.joystick.z = normalizedY; // Forward/backward
+      
+      // Update rawInputState immediately (like keyboard does)
+      const threshold = 0.3;
+      this.rawInputState.left = this.joystick.x < -threshold;
+      this.rawInputState.right = this.joystick.x > threshold;
+      this.rawInputState.forward = this.joystick.z < -threshold;
+      this.rawInputState.backward = this.joystick.z > threshold;
     }
   }
 
@@ -318,10 +331,19 @@ export class MobileControls {
     this.joystick.x = 0;
     this.joystick.z = 0;
     this.joystickStick.style.transform = 'translate(-50%, -50%)';
+    
+    // Clear movement state immediately (like keyboard does)
+    this.rawInputState.left = false;
+    this.rawInputState.right = false;
+    this.rawInputState.forward = false;
+    this.rawInputState.backward = false;
   }
 
   setButtonState(action, pressed) {
     this.buttonStates.set(action, pressed);
+    // Update rawInputState immediately (like keyboard does)
+    this.rawInputState[action] = pressed;
+    
     const button = this.buttons.get(action);
     if (button) {
       button.classList.toggle('pressed', pressed);
@@ -335,21 +357,6 @@ export class MobileControls {
     }, 100);
   }
 
-  updateInput(rawInputState) {
-    if (!this.enabled) return;
-
-    // Update movement from joystick
-    const threshold = 0.3;
-    rawInputState.left = this.joystick.x < -threshold;
-    rawInputState.right = this.joystick.x > threshold;
-    rawInputState.forward = this.joystick.z < -threshold;
-    rawInputState.backward = this.joystick.z > threshold;
-
-    // Update button states
-    for (const [action, pressed] of this.buttonStates) {
-      rawInputState[action] = pressed;
-    }
-  }
 
 
   destroy() {

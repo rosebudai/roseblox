@@ -87,7 +87,7 @@ export async function setupInput() {
   // Mobile controls setup
   let mobileControls = null;
   try {
-    mobileControls = new MobileControls();
+    mobileControls = new MobileControls(rawInputState);
     if (!mobileControls.init()) {
       mobileControls = null;
     }
@@ -104,18 +104,11 @@ export async function setupInput() {
       y: rawInputState.mouseY,
     }),
     isMouseDown: () => rawInputState.mouseDown,
-    getMovementVector: () => {
-      // Update from mobile controls if active
-      if (mobileControls?.enabled) {
-        mobileControls.updateInput(rawInputState);
-      }
-      
-      return {
-        x: (rawInputState.right ? 1 : 0) - (rawInputState.left ? 1 : 0),
-        // Original polarity: forward should be -Z.
-        z: (rawInputState.backward ? 1 : 0) - (rawInputState.forward ? 1 : 0),
-      };
-    },
+    getMovementVector: () => ({
+      x: (rawInputState.right ? 1 : 0) - (rawInputState.left ? 1 : 0),
+      // Original polarity: forward should be -Z.
+      z: (rawInputState.backward ? 1 : 0) - (rawInputState.forward ? 1 : 0),
+    }),
     
     // Expose mobile controls for camera system
     getMobileControls: () => mobileControls,
