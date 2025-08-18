@@ -547,9 +547,9 @@ export class GameSystems {
     });
 
     this.registerSystem("cameraUpdate", {
-      dependencies: ["camera"],
-      update: (world, { camera }, deltaTime) =>
-        cameraUpdateSystem(world, camera.controls, deltaTime),
+      dependencies: ["camera", "input"],
+      update: (world, dependencies, deltaTime) =>
+        cameraUpdateSystem(world, dependencies, deltaTime),
       priority: 75,
     });
   }
