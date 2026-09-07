@@ -1,6 +1,6 @@
 import * as THREE from "three";
 
-let debugLines = null;
+const linesByRenderer = new WeakMap();
 
 /**
  * A self-contained system that renders physics debug wireframes.
@@ -15,6 +15,8 @@ export function debugRenderSystem(world, { renderer, physics }) {
   if (!renderer || !physics) {
     return;
   }
+
+  let debugLines = linesByRenderer.get(renderer);
 
   // On the first run, create the debug lines object and add it to the scene
   if (!debugLines) {
@@ -31,6 +33,7 @@ export function debugRenderSystem(world, { renderer, physics }) {
       new THREE.BufferAttribute(buffers.colors, 4)
     );
     renderer.scene.add(debugLines);
+    linesByRenderer.set(renderer, debugLines);
   }
 
   // On every subsequent run, just update the geometry buffers

@@ -1,11 +1,13 @@
 {
   "name": "roseblox-game-engine",
-  "version": "0.0.2",
+  "version": "0.1.0-dev",
   "description": "Javascript game engine.",
   "main": "src/index.js",
   "type": "module",
+  "exports": "./src/index.js",
   "scripts": {
-    "build": "esbuild src/index.js --bundle --format=esm --external:three --external:miniplex --external:camera-controls --external:@dimforge/rapier3d-compat --outfile=build/roseblox-game-engine.js",
+    "build": "node scripts/build.mjs",
+    "test": "node --test tests/*.test.js",
     "docs": "mkdir -p build/docs && jsdoc -c jsdoc.json",
     "build:all": "npm run build && npm run docs"
   },
@@ -21,13 +23,18 @@
     "url": "https://github.com/rosebudai/roseblox/issues"
   },
   "peerDependencies": {
-    "@dimforge/rapier3d-compat": "*",
-    "camera-controls": "*",
-    "miniplex": "*",
-    "three": "*"
+    "@dimforge/rapier3d-compat": "0.20.x",
+    "camera-controls": "3.1.x",
+    "miniplex": "2.0.x",
+    "three": "0.184.x || 0.185.x"
   },
   "devDependencies": {
-    "esbuild": "^0.20.2",
-    "jsdoc-to-markdown": "^9.1.1"
+    "@dimforge/rapier3d-compat": "0.20.0",
+    "camera-controls": "3.1.2",
+    "miniplex": "2.0.0",
+    "three": "0.184.0",
+    "esbuild": "0.28.2",
+    "jsdoc": "4.0.5",
+    "@playwright/test": "1.63.0"
   }
 }

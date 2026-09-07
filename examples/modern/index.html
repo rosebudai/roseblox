@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Roseblox · Meadow Run</title>
+  <link rel="icon" href="data:,">
+  <style>
+    * { box-sizing: border-box; } html,body { margin:0; height:100%; background:#102b32; font:16px system-ui; color:#fff; }
+    #viewport { width:100%; height:100%; } canvas { display:block; width:100%; height:100%; }
+    aside { position:absolute; top:24px; left:24px; padding:20px 24px; background:#132e38df; border-radius:18px; max-width:340px; }
+    h1 { margin:0 0 8px; font-size:24px; } p { margin:8px 0; color:#d3e8dc; } button { padding:9px 16px; border:0; border-radius:8px; cursor:pointer; background:#ffda7b; color:#17363b; font-weight:700; }
+    #status { min-height:24px; color:#ffda7b; } #error { position:absolute; bottom:0; color:#fff; background:#912b35; white-space:pre-wrap; }
+  </style>
+  <script type="importmap">{"imports":{"three":"https://esm.sh/three@0.184.0","three/":"https://esm.sh/three@0.184.0/"}}</script>
+</head>
+<body>
+  <div id="viewport"><canvas aria-label="Meadow Run 3D game" tabindex="0"></canvas></div>
+  <aside><h1>Meadow Run</h1><p>WASD / arrows to move · Space to jump</p><p>Drag to orbit · Scroll to zoom</p><p>Collect the five golden lights.</p><p>Score: <strong id="score">0</strong> / 5</p><p id="status">Follow the path ahead</p><button id="restart">Restart</button></aside>
+  <pre id="error"></pre>
+  <script type="module" src="./main.js"></script>
+</body>
+</html>

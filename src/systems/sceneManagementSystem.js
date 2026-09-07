@@ -1,150 +1,110 @@
-/**
- * Scene Management System
- *
- * ECS system that handles mesh lifecycle and scene graph management.
- * Uses the renderer's factory registry to create meshes for entities.
- * Also handles automatic cleanup of meshes and physics bodies when entities are removed.
- */
+import { disposeObject } from "../resources/renderer/disposeObject.js";
 
-// Track meshes and physics bodies to detect orphaned resources
-const trackedMeshes = new Map(); // mesh -> entity mapping
-const trackedPhysicsBodies = new Map(); // physicsBody -> entity mapping
+// A renderer owns its scene. Separate engine instances never share tracking maps.
+const sceneStates = new WeakMap();
 
-/**
- * Scene management system - handles mesh creation, cleanup, and scene graph updates.
- * @param {World} world - ECS world instance.
- * @param {Object} context - The engine's resource context.
- * @param {Object} context.renderer - The renderer resource.
- * @param {Object} context.assets - The asset manager resource.
- * @param {Object} context.physics - The physics resource.
- */
+function trackMesh(state, entity) {
+  const mesh = entity.renderable?.mesh;
+  if (mesh && !state.meshes.has(mesh)) {
+    // Ownership belongs to the registered mesh, even if its component is later
+    // removed or replaced with a different renderable type.
+    state.meshes.set(mesh, {
+      entity,
+      ownsResources: entity.renderable.type !== "gltf",
+      // New factory data takes precedence over a previous mesh's component.
+      mixer: entity.animationData?.mixer ?? entity.animationMixer?.mixer,
+    });
+  }
+}
+
+/** Establish cleanup before user setup, including add/remove before the first frame. */
+export function setupSceneManagement(world, { renderer, physics }) {
+  let state = sceneStates.get(renderer);
+  if (state) return state;
+  state = { meshes: new Map(), bodies: new Map() };
+  const track = (entity) => {
+    trackMesh(state, entity);
+    if (entity.physicsBody) state.bodies.set(entity.physicsBody, entity);
+  };
+  const unsubscribeAdded = world.onEntityAdded.subscribe(track);
+  const unsubscribeRemoved = world.onEntityRemoved.subscribe((entity) => {
+    // Components may have been attached since the most recent frame.
+    track(entity);
+    for (const [mesh, ownership] of state.meshes) if (ownership.entity === entity) releaseMesh(state, mesh, ownership, world);
+    for (const [body, owner] of state.bodies) if (owner === entity) releaseBody(state, body, physics);
+  });
+  state.dispose = () => {
+    unsubscribeAdded();
+    unsubscribeRemoved();
+    state.meshes.clear();
+    state.bodies.clear();
+    sceneStates.delete(renderer);
+  };
+  sceneStates.set(renderer, state);
+  for (const entity of world) track(entity);
+  return state;
+}
+
+function releaseMesh(state, mesh, { entity, ownsResources, mixer }, world) {
+  mesh.removeFromParent();
+  mixer?.stopAllAction();
+  if (mixer && world.has(entity)) {
+    // Retire only the old mesh's animation components. A replacement factory
+    // may already have attached new animationData for the next setup phase.
+    if (entity.animationMixer?.mixer === mixer) world.removeComponent(entity, "animationMixer");
+    if (entity.animationData?.mixer === mixer) world.removeComponent(entity, "animationData");
+  }
+  // GLTF clones share buffers/materials owned by AssetManager.
+  if (ownsResources) disposeObject(mesh);
+  state.meshes.delete(mesh);
+}
+
+function releaseBody(state, body, physics) {
+  if (body.controller) physics.world.removeCharacterController?.(body.controller);
+  if (body.rigidBody && (body.rigidBody.isValid?.() ?? true)) physics.world.removeRigidBody(body.rigidBody);
+  else if (body.collider && (body.collider.isValid?.() ?? true)) physics.world.removeCollider(body.collider, true);
+  state.bodies.delete(body);
+}
+
+/** Create missing meshes and clean up entities/components removed from this world. */
 export function sceneManagementSystem(world, { renderer, assets, physics }) {
-  // Handle mesh creation (existing logic)
-  handleMeshCreation(world, renderer, assets);
-
-  // Handle automatic cleanup of orphaned resources
-  handleResourceCleanup(world, renderer, physics);
-}
-
-/**
- * Handles mesh creation for entities that need meshes
- * @param {World} world - ECS world instance
- * @param {Object} renderer - The renderer resource
- * @param {Object} assets - The asset manager resource
- */
-function handleMeshCreation(world, renderer, assets) {
+  const state = setupSceneManagement(world, { renderer, physics });
   for (const entity of world) {
-    if (
-      !entity.renderable ||
-      !entity.renderable.needsMesh ||
-      entity.renderable.mesh
-    ) {
-      continue;
-    }
-
-    // A factory can be specified by the component name (e.g., isParticleEmitter)
-    // or by the renderable's type property (e.g., type: 'gltf').
-    let factory;
-    let factoryKey;
-
-    // First, check for a component name that is a registered factory
-    for (const componentName in entity) {
-      if (renderer.getMeshFactory(componentName)) {
-        factoryKey = componentName;
-        break;
-      }
-    }
-
-    // If no component factory is found, fall back to the renderable type
-    if (factoryKey) {
-      factory = renderer.getMeshFactory(factoryKey);
-    } else if (entity.renderable && entity.renderable.type) {
-      factory = renderer.getMeshFactory(entity.renderable.type);
-    }
-
-    if (factory) {
+    const renderable = entity.renderable;
+    if (renderable?.needsMesh && !renderable.mesh) {
+      const factoryKey = Object.keys(entity).find((key) => renderer.getMeshFactory(key)) ?? renderable.type;
+      const factory = renderer.getMeshFactory(factoryKey);
+      renderable.needsMesh = false;
+      if (!factory) throw new Error(`No mesh factory registered for '${factoryKey}'. Register one or use procedural/gltf renderable metadata.`);
       try {
-        // Pass the entity and any necessary resources to the factory.
         const mesh = factory(entity, { assets });
-
-        // The rest of the logic remains the same.
-        entity.renderable.mesh = mesh;
+        if (!mesh?.isObject3D) throw new Error("Mesh factory must synchronously return a Three.js Object3D.");
+        renderable.mesh = mesh;
         renderer.scene.add(mesh);
-
-        // Track this mesh for cleanup detection
-        trackedMeshes.set(mesh, entity);
-      } catch (error) {
-        console.error(
-          `Mesh factory for entity failed [type: ${
-            factoryKey || entity.renderable.type
-          }]:`,
-          error
-        );
-      } finally {
-        // CRITICAL: Always mark as processed to prevent infinite loops on error.
-        entity.renderable.needsMesh = false;
-      }
-    } else {
-      console.warn(`No mesh factory found for type: ${entity.renderable.type}`);
-      // Mark as processed to avoid re-checking every frame
-      entity.renderable.needsMesh = false;
-    }
-  }
-
-  // Track physics bodies for cleanup detection
-  for (const entity of world) {
-    if (entity.physicsBody && !trackedPhysicsBodies.has(entity.physicsBody)) {
-      trackedPhysicsBodies.set(entity.physicsBody, entity);
-    }
-  }
-}
-
-/**
- * Handles cleanup of orphaned meshes and physics bodies
- * @param {World} world - ECS world instance
- * @param {Object} renderer - The renderer resource
- * @param {Object} physics - The physics resource
- */
-function handleResourceCleanup(world, renderer, physics) {
-  // Get all current entities for quick lookup
-  const currentEntities = new Set(world);
-
-  // Check for orphaned meshes
-  for (const [mesh, entity] of trackedMeshes) {
-    if (!currentEntities.has(entity)) {
-      // Remove from Three.js scene
-      renderer.scene.remove(mesh);
-
-      // Dispose of geometry and materials to free memory
-      if (mesh.geometry) {
-        mesh.geometry.dispose();
-      }
-      if (mesh.material) {
-        if (Array.isArray(mesh.material)) {
-          mesh.material.forEach((mat) => mat.dispose());
-        } else {
-          mesh.material.dispose();
+        // A GLTF factory may attach animation data while constructing its mesh.
+        // Reindex that new component for Miniplex queries.
+        if (entity.animationData) {
+          const animationData = entity.animationData;
+          delete entity.animationData;
+          world.addComponent(entity, "animationData", animationData);
         }
+      } catch (error) {
+        throw new Error(`Mesh factory '${factoryKey}' failed: ${error.message}`, { cause: error });
       }
-
-      // Remove from tracking
-      trackedMeshes.delete(mesh);
     }
+    // Also track meshes and bodies supplied directly by game helpers.
+    trackMesh(state, entity);
+    if (entity.physicsBody) state.bodies.set(entity.physicsBody, entity);
   }
 
-  // Check for orphaned physics bodies
-  for (const [physicsBody, entity] of trackedPhysicsBodies) {
-    if (!currentEntities.has(entity)) {
-      // Remove from physics world
-      if (physicsBody.collider) {
-        physics.world.removeCollider(physicsBody.collider, true);
-      }
-      if (physicsBody.rigidBody) {
-        physics.world.removeRigidBody(physicsBody.rigidBody);
-      }
-
-      // Remove from tracking
-      trackedPhysicsBodies.delete(physicsBody);
-    }
+  const entities = new Set(world);
+  for (const [mesh, ownership] of state.meshes) {
+    const { entity } = ownership;
+    if (entities.has(entity) && entity.renderable?.mesh === mesh) continue;
+    releaseMesh(state, mesh, ownership, world);
+  }
+  for (const [body, entity] of state.bodies) {
+    if (entities.has(entity) && entity.physicsBody === body) continue;
+    releaseBody(state, body, physics);
   }
 }

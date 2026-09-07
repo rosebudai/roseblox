@@ -1,0 +1,18 @@
+<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="icon" href="data:,"><style>html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#101820}.game{position:relative;width:100%;height:100%}canvas{display:block;width:100%;height:100%;outline:none}</style><script type="importmap">{"imports":{"three":"https://esm.sh/three@0.184.0","three/":"https://esm.sh/three@0.184.0/"}}</script></head><body><div class="game"><canvas></canvas></div><script type="module">
+import { createGame, createHud, createVoxelKit } from '/build/roseblox.js';
+const mount=document.querySelector('.game');
+const fixture=window.hudFixture={game:null,hud:null,starts:0,restarts:0};
+fixture.configure=async style=>{
+  fixture.game?.dispose();
+  const game=fixture.game=await createGame({canvas:mount.querySelector('canvas'),autoStart:false});
+  game.addBox({size:[20,1,20],position:[0,-1,0],color:0x294151});
+  game.addSphere({position:[0,.5,0],color:0xdd9156});
+  game.controls.setLookAt(0,3,7,0,0,0,false);
+  const options={title:'ORBITAL DEPOT',objective:'Protect the depot and survive until every security drone is disabled',controls:'WASD move · Mouse aim/fire · R reload · Escape pause',onStart:()=>fixture.starts++,onRestart:()=>fixture.restarts++};
+  if(style==='voxel')fixture.hud=createVoxelKit(game,{lighting:false}).hud(options);
+  else fixture.hud=createHud(game,{...options,crosshair:true,stats:{health:{label:'Hull',value:100},ammo:{label:'Ammo',value:'8 / 32'}},theme:style==='horror'?{font:'Georgia,serif',text:'#eadcc4',accent:'#dfac89',panel:'#1b1217db',border:'#6b4d48',radius:'0px',shadow:'none',buttonBackground:'#36232a',buttonBorder:'#a57765',buttonShadow:'none'}:{font:'system-ui,sans-serif',accent:'#64dfff',panel:'#081522e8',radius:'0px'}});
+  game.engine.update(1/60);
+};
+await fixture.configure('scifi');
+window.addEventListener('pagehide',()=>fixture.game?.dispose(),{once:true});
+</script></body></html>

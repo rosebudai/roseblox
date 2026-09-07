@@ -45,11 +45,11 @@ export function triggerDetectionSystem(world, eventBus) {
       }
       
       // Check previous state
-      const wasInside = triggerZone.triggerZone.currentlyInside.has(triggerable.id);
+      const wasInside = triggerZone.triggerZone.currentlyInside.has(triggerable);
       
       if (isInside && !wasInside) {
         // Entity entered trigger zone
-        triggerZone.triggerZone.currentlyInside.add(triggerable.id);
+        triggerZone.triggerZone.currentlyInside.add(triggerable);
         
         eventBus.emit("trigger-entered", {
           triggerable,
@@ -59,7 +59,7 @@ export function triggerDetectionSystem(world, eventBus) {
         
       } else if (!isInside && wasInside) {
         // Entity exited trigger zone
-        triggerZone.triggerZone.currentlyInside.delete(triggerable.id);
+        triggerZone.triggerZone.currentlyInside.delete(triggerable);
         
         eventBus.emit("trigger-exited", {
           triggerable,

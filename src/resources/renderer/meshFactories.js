@@ -84,14 +84,7 @@ export function gltfMeshFactory(entity, { assets }) {
 
   const cached = assets.cache.get(assetKey);
   if (!cached) {
-    console.error(`GLTF asset not preloaded: ${assetKey}`);
-    // Return a visible error mesh
-    const errorGeom = new THREE.BoxGeometry(1, 1, 1);
-    const errorMat = new THREE.MeshBasicMaterial({
-      color: 0xff0000,
-      wireframe: true,
-    });
-    return new THREE.Mesh(errorGeom, errorMat);
+    throw new Error(`GLTF asset '${assetKey}' is not preloaded. Add it to config.assets before init().`);
   }
 
   const gltfClone = assets.cloneGLTF(cached);

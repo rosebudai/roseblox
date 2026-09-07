@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width,initial-scale=1">
+    <title>Assistant-authored target gallery calibration</title>
+    <link rel="icon" href="data:,">
+    <style>
+      html, body { margin: 0; height: 100%; overflow: hidden; font: 16px system-ui, sans-serif; color: #f5f8ff; }
+      #game-canvas { display: block; width: 100%; height: 100%; }
+      #hud { position: absolute; top: 24px; left: 24px; padding: 18px 22px; background: #101c32e8; border: 1px solid #65789d; border-radius: 12px; pointer-events: none; }
+      h1 { margin: 0 0 6px; font-size: 22px; }
+      #hud p { margin: 6px 0; }
+      #score { font-size: 28px; font-weight: 750; }
+      #status { color: #f9e095; min-height: 24px; }
+      #crosshair { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); font-size: 30px; line-height: 1; text-shadow: 0 1px 3px #000; pointer-events: none; }
+      #menu { position: absolute; left: 50%; top: calc(50% + 110px); transform: translateX(-50%); text-align: center; }
+      button { padding: 14px 30px; font: inherit; font-size: 20px; font-weight: 700; border: 0; border-radius: 10px; background: #f8d05d; color: #152037; cursor: pointer; }
+      button[hidden] { display: none; }
+      #calibration-label { position: absolute; right: 20px; bottom: 16px; padding: 9px 13px; background: #07111bdf; border: 1px solid #70839b; font-size: 13px; pointer-events: none; }
+    </style>
+  </head>
+  <body>
+    <canvas id="game-canvas" aria-label="3D target gallery"></canvas>
+    <section id="hud">
+      <h1>Target gallery</h1>
+      <p id="controls">Mouse to aim · Click to fire · Escape to release mouse</p>
+      <p id="score">Hits: 0</p>
+      <p id="status">Press Start</p>
+    </section>
+    <div id="crosshair" aria-hidden="true">+</div>
+    <div id="menu"><button id="start">Start</button><button id="restart" hidden>Restart</button></div>
+    <div id="calibration-label">ASSISTANT-AUTHORED CALIBRATION · NOT A ROSIE GENERATION SAMPLE</div>
+    <script type="module" src="./main.js"></script>
+  </body>
+</html>

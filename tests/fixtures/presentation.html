@@ -1,0 +1,20 @@
+<!doctype html><html><head><meta charset="utf-8"><title>Roseblox presentation contract</title>
+<style>html,body{margin:0;width:100%;height:100%;background:#101722}#mount{width:100%;height:100%}canvas{display:block}</style>
+<link rel="icon" href="data:,"><script type="importmap">{"imports":{"three":"/node_modules/three/build/three.module.js","three/":"/node_modules/three/","three/addons/":"/node_modules/three/examples/jsm/"}}</script></head><body><div id="mount"><canvas></canvas></div>
+<script type="module">
+import * as THREE from 'three';
+import { createGame, createHud } from '/build/roseblox.js';
+const canvas=document.querySelector('canvas');
+if(new URLSearchParams(location.search).has('fallback')) canvas.requestPointerLock=()=>Promise.reject(new DOMException('Fixture denial','NotAllowedError'));
+const game=await createGame({canvas,lighting:false,maxPixelRatio:1.5});
+game.scene.add(new THREE.HemisphereLight('#d8eeff','#332019',2));
+game.addBox({size:[30,1,30],position:[0,-.5,0],material:{color:'#33485c',roughness:.6}});
+game.addBox({size:[2,2,2],position:[0,1,-5],material:{color:'#33bfff',emissive:'#33bfff',emissiveIntensity:3}});
+const player=game.addPlayer({position:[0,.9,4],jumpSpeed:0});
+let shots=0;
+const fps=game.firstPerson(player,{onFire(){hud.setStat('ammo',8-++shots);}});
+const hud=createHud(game,{title:'SYSTEMS CHECK',objective:'Environment, bloom, HUD and input',controls:'WASD · Mouse look · Click fire · Escape',crosshair:true,stats:{health:{label:'Hull',value:100,position:'bottom-left'},ammo:{label:'Ammo',value:8,position:'bottom-right'}},onStart(){fps.start();},onRestart(){shots=0;hud.setStat('ammo',8);fps.start();}});
+const sky=document.createElement('canvas');sky.width=512;sky.height=256;const ctx=sky.getContext('2d');const gradient=ctx.createLinearGradient(0,0,0,256);gradient.addColorStop(0,'#15365c');gradient.addColorStop(.5,'#99cddd');gradient.addColorStop(1,'#333342');ctx.fillStyle=gradient;ctx.fillRect(0,0,512,256);
+await game.setEnvironment(sky.toDataURL(),{intensity:.7});await game.setBloom();
+window.probe={game,hud,fps,player,get shots(){return shots;}};
+</script></body></html>

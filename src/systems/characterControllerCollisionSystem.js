@@ -65,7 +65,7 @@ export function characterControllerCollisionSystem(
         ) {
           const otherEntity = otherCollider.userData.entity;
           const otherEntityId =
-            otherEntity.id || otherEntity.testId || "unknown";
+            otherEntity;
 
           // Track this collision (store both ID and entity reference)
           collisionTracker.currentCollisions.set(otherEntityId, otherEntity);
