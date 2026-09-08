@@ -43,17 +43,12 @@ For custom rendering, `game.setRenderPipeline({render(dt),resize(width,height,pi
 
 ## Optional room lighting and constructed props
 
-These presentation helpers are ordinary Three.js objects; game rules remain yours. They need no extra generated assets, model calls or playtesting loop. Use them where the requested style fits:
+These presentation helpers are ordinary Three.js objects; game rules remain yours. Choose scene objects and their text from the requested setting. The examples demonstrate API usage, not required level content.
 
 ```js
-import { createInteriorLighting, createFramedBox } from './rosie/roseblox.js';
+import { createInteriorLighting } from './rosie/roseblox.js';
 // Create the game with lighting:false; floor y=0, ceiling y=6.
 const lights = createInteriorLighting(game, { center: [0,3,0], size: [20,6,24] });
-const cover = createFramedBox(game, {
-  name: 'cargo', size: [2.4,1.8,1.8], position: [-3,0.9,-4],
-  color: '#506b79', frameColor: '#a5adb0', accent: '#d6aa55', label: 'CARGO 07',
-});
-// game.remove(cover) removes the visual and its one full-size box collider.
 ```
 
 `createInteriorLighting(game,{center=[0,3,0],size=[20,6,24],intensity=1,keyColor?,fillColor?,groundColor?,shadows=true})` puts a shadowed spotlight and unshadowed fill inside those room bounds, plus soft hemisphere illumination. Supply the actual interior dimensions in metres. Use one rig for the play space; hemisphere fill is global. This lights the geometry even under a roof, independently of skybox generation. The returned `{root,key,fill,ambient,dispose()}` exposes lights for tuning and is owned by game disposal. It does not change the camera, environment, tone mapping or default lights. Bloom remains an optional separate call. For outdoor scenes, author appropriate sun/sky lighting instead.
@@ -110,21 +105,19 @@ The returned `{mesh,bounds,clips,play,stop,dispose}` uses the same clip/material
 
 ## Compact HUD for any style
 
-Import `createHud` with `createGame` for responsive DOM readouts, status and Start/Restart without creating voxel scenery. Create it after the game mounts its canvas:
+Import `createHud` with `createGame` for responsive DOM readouts, status and Start/Restart without creating voxel scenery. Create it after the game mounts its canvas. Supply your game's title, objective, controls and reset callback:
 
 ```js
 const hud = createHud(game, {
-  title: 'ORBITAL DEPOT', objective: 'Disable the security drones',
+  title, objective, controls,
   preset: 'minimal',
-  controls: 'WASD move · Mouse aim/fire · R reload · Escape pause',
   theme: { accent: '#efc877' },
-  stats: { health: { label: 'Hull', value: 100, position: 'bottom-left' }, ammo: { label: 'Ammo', value: '8 / 32', position: 'bottom-right' } },
-  crosshair: true, onStart: resetRound, onRestart: resetRound,
+  stats: { health: { label: 'Health', value: 100, position: 'bottom-left' } },
+  onStart: resetGame, onRestart: resetGame,
 });
-// resetRound owns game state; for FPS, call fps.start() there from this click.
-hud.setStat('health', 88); hud.setStat('ammo', '7 / 32');
-hud.setMessage('Hit'); // transient feedback preserves won/lost state and outcome controls
-// On an outcome, stop/gate your game rules and fps.stop(), then set won/lost.
+hud.setStat('health', 88);
+hud.setMessage(message); // transient feedback preserves outcome controls
+// resetGame owns game state; gate rules before setting a won/lost outcome.
 ```
 
 `stats` maps names to `{label,value,id?,position?}`; position is `panel` (default), `bottom-left` or `bottom-right`. values are strings or finite numbers, including zero. Readout IDs default to their names. Without `stats`, the legacy `scoreLabel:'Score'`/`setScore(value,total?)` readout is provided. `setScore` also works when an explicit `score` stat exists. `ids` customizes default `score,status,start,restart` IDs; every ID in one document must be unique. `status/start/restart` are reserved stat names.
@@ -228,21 +221,21 @@ This supplies collision sliding, not pathfinding. Choose reachable patrol waypoi
 
 For enemy sight or a projectile segment, use `game.raycastBetween(from,to,{entities:blockers})`. It checks the world-space segment, independent of the player's camera, and returns the closest visible mesh hit or `null`. Include the relevant wall/cover entities and omit the source/target actors for a clear-sight test. For example, `!game.raycastBetween(enemyEye,playerEye,{entities:solidCover})` means no listed cover lies between those points. Segment queries include mesh children, have no hits beyond the target endpoint, and return `null` for coincident endpoints. Hidden roots are excluded. This is a visual-geometry query; it does not create colliders or choose routes. `game.raycast({x,y,...})` remains a **camera-origin screen ray** for player aiming, not an enemy sight query.
 
-## Wall and floor textures
+## Surface materials
 
-For a textured setting, generate the one or two surfaces covering most of the screen early with a single `generate_assets` batch: `generation_kind:"texture_tile"`, `aspect_ratio:"1:1"`. Describe one seamless, opaque, edge-to-edge base-color material seen straight on under even lighting. Specify panel/stone/grain scale and restrained wear; omit perspective, objects, borders, text and baked directional shadows. Keep painted surfaces moderately light so the room lighting can shade them. Use real trim geometry for depth and lighting for shadows; an image map alone adds neither.
+For a textured setting, choose a reusable palette of three or four distinct materials suited to the actual scene. Prioritize broad visible surfaces and material differences that help distinguish locations; use fewer when the scene has fewer surface types. Reuse materials across matching surfaces and use tint for minor color variations. Generate the palette early with a single `generate_assets` batch: `generation_kind:"texture_tile"`, `aspect_ratio:"1:1"`. Describe one seamless, opaque, edge-to-edge base-color material seen straight on under even lighting. Specify the material's detail scale and restrained wear; omit perspective, objects, borders, text and baked directional shadows. Keep surfaces moderately light so scene lighting can shade them. Use geometry for depth and lighting for shadows; an image map alone adds neither.
 
 `await game.loadMaterial(code_reference, {repeat:[u,v], roughness:0.85, metalness:0, color:0xffffff})` returns a game-owned `THREE.MeshStandardMaterial`. It sets sRGB color, repeat wrapping, mipmapped filtering and renderer anisotropy. Repeated requests for one URL share its downloaded image while keeping separate texture sampling. Load it before adding the shapes that use it; shapes own independent copies. `game.dispose()` releases source materials and images, including late loads. An optional early `material.dispose()` leaves existing shape copies usable. Use a new material request for a differently sized surface; changing the source after shape creation does not update that shape.
 
 Choose repeat counts from the visible face's dimensions divided by a tile's intended size in metres. A 24-by-32-metre floor using a 2-metre square tile needs `[12,16]`; a 32-by-7-metre wall needs `[16,3.5]`. Box top faces map X/Z, front/back map X/Y, and left/right map Z/Y. Orient wall segments consistently and keep repeat counts proportional, rather than stretching one tile across a room. This helper uses the mesh's UVs; it does not project textures or change collision.
 
 ```js
-const [deck, bulkhead] = await Promise.all([
-  game.loadMaterial("./assets/deck.webp", {repeat:[12,16], roughness:0.88}),
-  game.loadMaterial("./assets/bulkhead.webp", {repeat:[16,3.5], roughness:0.8}),
+const [floorMaterial, wallMaterial] = await Promise.all([
+  game.loadMaterial(floorCodeReference, {repeat:[12,16], roughness:0.88}),
+  game.loadMaterial(wallCodeReference, {repeat:[16,3.5], roughness:0.8}),
 ]);
-game.addBox({size:[24,0.5,32], position:[0,-0.25,0], material:deck});
-game.addBox({size:[0.5,7,32], position:[12,3.5,0], material:bulkhead});
+game.addBox({size:[24,0.5,32], position:[0,-0.25,0], material:floorMaterial});
+game.addBox({size:[0.5,7,32], position:[12,3.5,0], material:wallMaterial});
 ```
 
 ## Public game API

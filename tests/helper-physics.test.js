@@ -412,6 +412,29 @@ test(`default ${cameraMode} player jumps, lands and respects a solid wall`, asyn
 });
 }
 
+test("a player falls promptly after a jump hits a low ceiling", async t => {
+  const game = await headlessGame(t);
+  const { player } = floorAndPlayer(game, { jumpSpeed: undefined });
+  game.addBox({ size: [8, 0.4, 8], position: [0, 2.8, 0] });
+  advance(game, 1);
+  const standingY = player.body.translation().y;
+  game.input.setAction("jump", true);
+  advance(game, game.engine.fixedTimeStep);
+  game.input.reset();
+  let peak = standingY, peakFrame = 0;
+  const heights = [];
+  for (let frame = 0; frame < 60; frame++) {
+    advance(game, game.engine.fixedTimeStep);
+    const y = player.body.translation().y;
+    heights.push(y);
+    if (y > peak + 1e-4) { peak = y; peakFrame = frame; }
+  }
+  assert.ok(peak > standingY + 0.4 && peak < 1.61, "jump reaches the roof without passing through it");
+  assert.ok(heights[peakFrame + 3] < peak - 0.005, "the player descends within three physics ticks of impact");
+  assert.equal(player.player.grounded, true);
+  assert.ok(Math.abs(player.body.translation().y - standingY) < 0.03, "the player lands back on the floor");
+});
+
 test("default player and corrected model face camera yaw while idle, strafing and backing up", async t => {
   const game = await headlessGame(t);
   const { player } = floorAndPlayer(game);

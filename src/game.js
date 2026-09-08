@@ -86,6 +86,15 @@ export async function createGame(options = {}) {
           z: direction.z * speed * dt,
         }, physics.RAPIER.QueryFilterFlags.EXCLUDE_SENSORS);
         const delta = controller.computedMovement();
+        if (control.verticalVelocity > 0) {
+          for (let i = 0; i < controller.numComputedCollisions(); i++) {
+            // Underside contacts cancel the jump; side walls still allow upward sliding.
+            if (controller.computedCollision(i)?.normal1.y < -0.01) {
+              control.verticalVelocity = 0;
+              break;
+            }
+          }
+        }
         const position = body.translation();
         body.setNextKinematicTranslation({ x: position.x + delta.x, y: position.y + delta.y, z: position.z + delta.z });
         control.grounded = controller.computedGrounded();
