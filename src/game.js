@@ -7,6 +7,7 @@ import { createModelAttachments } from "./modelAttachments.js";
 import { createFirstPersonCamera, firstPersonOptions } from "./firstPersonCamera.js";
 import { createOwnedMaterial } from "./resources/renderer/ownedMaterial.js";
 import { createEnvironment } from "./environment.js";
+import { createSurfaceMaterials } from "./surfaceMaterials.js";
 import { setBloom } from "./bloom.js";
 
 const PLAYER_SKIN = 0.02;
@@ -161,6 +162,8 @@ export async function createGame(options = {}) {
   const { scene, renderer } = rendererResource;
   const environment = createEnvironment({ scene, renderer });
   engine.addResource("gameEnvironment", environment);
+  const surfaceMaterials = createSurfaceMaterials({ renderer });
+  engine.addResource("gameSurfaceMaterials", surfaceMaterials);
   const cameraResource = engine.getResource("camera");
   const { camera, controls, obstacles } = cameraResource;
   // Standalone disabled controls hand the pose to caller-owned FPS/cutscene
@@ -535,6 +538,8 @@ export async function createGame(options = {}) {
     /** Replaces owned panorama art and optional environment lighting. */
     setEnvironment(url, options) { assertLive(); return environment.set(url, options); },
     clearEnvironment() { assertLive(); environment.clear(); },
+    /** Load an owned, repeating base-color material for walls, floors and other surfaces. */
+    loadMaterial(url, options) { assertLive(); return surfaceMaterials.load(url, options); },
     /** One final render owner; set null to restore direct rendering. */
     setRenderPipeline(pipeline) { assertLive(); rendererResource.pipeline.set(pipeline); },
     /** Optional bloom and ACES tone mapping; no second animation loop. */

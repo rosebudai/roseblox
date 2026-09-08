@@ -228,6 +228,23 @@ This supplies collision sliding, not pathfinding. Choose reachable patrol waypoi
 
 For enemy sight or a projectile segment, use `game.raycastBetween(from,to,{entities:blockers})`. It checks the world-space segment, independent of the player's camera, and returns the closest visible mesh hit or `null`. Include the relevant wall/cover entities and omit the source/target actors for a clear-sight test. For example, `!game.raycastBetween(enemyEye,playerEye,{entities:solidCover})` means no listed cover lies between those points. Segment queries include mesh children, have no hits beyond the target endpoint, and return `null` for coincident endpoints. Hidden roots are excluded. This is a visual-geometry query; it does not create colliders or choose routes. `game.raycast({x,y,...})` remains a **camera-origin screen ray** for player aiming, not an enemy sight query.
 
+## Wall and floor textures
+
+For a textured setting, generate the one or two surfaces covering most of the screen early with a single `generate_assets` batch: `generation_kind:"texture_tile"`, `aspect_ratio:"1:1"`. Describe one seamless, opaque, edge-to-edge base-color material seen straight on under even lighting. Specify panel/stone/grain scale and restrained wear; omit perspective, objects, borders, text and baked directional shadows. Keep painted surfaces moderately light so the room lighting can shade them. Use real trim geometry for depth and lighting for shadows; an image map alone adds neither.
+
+`await game.loadMaterial(code_reference, {repeat:[u,v], roughness:0.85, metalness:0, color:0xffffff})` returns a game-owned `THREE.MeshStandardMaterial`. It sets sRGB color, repeat wrapping, mipmapped filtering and renderer anisotropy. Repeated requests for one URL share its downloaded image while keeping separate texture sampling. Load it before adding the shapes that use it; shapes own independent copies. `game.dispose()` releases source materials and images, including late loads. An optional early `material.dispose()` leaves existing shape copies usable. Use a new material request for a differently sized surface; changing the source after shape creation does not update that shape.
+
+Choose repeat counts from the visible face's dimensions divided by a tile's intended size in metres. A 24-by-32-metre floor using a 2-metre square tile needs `[12,16]`; a 32-by-7-metre wall needs `[16,3.5]`. Box top faces map X/Z, front/back map X/Y, and left/right map Z/Y. Orient wall segments consistently and keep repeat counts proportional, rather than stretching one tile across a room. This helper uses the mesh's UVs; it does not project textures or change collision.
+
+```js
+const [deck, bulkhead] = await Promise.all([
+  game.loadMaterial("./assets/deck.webp", {repeat:[12,16], roughness:0.88}),
+  game.loadMaterial("./assets/bulkhead.webp", {repeat:[16,3.5], roughness:0.8}),
+]);
+game.addBox({size:[24,0.5,32], position:[0,-0.25,0], material:deck});
+game.addBox({size:[0.5,7,32], position:[12,3.5,0], material:bulkhead});
+```
+
 ## Public game API
 
 - `await createGame({canvas, autoStart=true, gravity={x:0,y:-9.81,z:0}, fixedTimeStep=1/60, maxSubSteps=8, ...engineConfig})`: returns an independent game. Pass `autoStart:false` for manual `game.engine.update(seconds)` in tests.

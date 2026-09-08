@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Add `game.loadMaterial` for repeating sRGB surface textures, shared image downloads, independent material sampling and game-owned asynchronous cleanup; document generated wall/floor tiles and scale.
 - Add standalone themed `createHud` with named readouts, optional crosshair and game-owned DOM cleanup, preserving the voxel HUD delegate.
 - Add input-independent `game.addCharacter` with world-space velocity, capsule collision and reset lifecycle; add `game.raycastBetween` for camera-independent sight and projectile segments.
 - Add scoped `game.firstPerson` eye-follow, pointer look and lock/session handling with ownership restoration; support `jumpSpeed:0` for grounded no-jump games.
