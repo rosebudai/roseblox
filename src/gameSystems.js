@@ -1,4 +1,5 @@
 import { World } from "miniplex";
+import { resetPresentationTransform } from "./presentationTransform.js";
 
 // Core Engine Resource Setups
 import { setupRenderer } from "./resources/renderer/rendererSetup.js";
@@ -23,10 +24,10 @@ import { cameraUpdateSystem } from "./systems/cameraUpdateSystem.js";
 import { physicsBodySetupSystem } from "./systems/physicsBodySetupSystem.js";
 import { parentingSystem } from "./systems/parentingSystem.js";
 import { debugRenderSystem } from "./systems/debugRenderSystem.js";
-import { collisionSystem } from "./systems/collisionSystem.js";
+import { collisionSystem, setupCollisionTracking } from "./systems/collisionSystem.js";
 import { characterControllerCollisionSystem } from "./systems/characterControllerCollisionSystem.js";
 import { physicsCameraCollisionSystem } from "./systems/physicsCameraCollisionSystem.js";
-import { triggerDetectionSystem } from "./systems/triggerDetectionSystem.js";
+import { triggerDetectionSystem, setupTriggerDetection } from "./systems/triggerDetectionSystem.js";
 
 /**
  * A game instance. Resources and ECS state belong to this instance.
@@ -204,7 +205,12 @@ export class GameSystems {
     this._lastTime = null;
     this._accumulator = 0;
     this.resources.get("input")?.instance?.reset?.();
+    for (const entity of this.world) resetPresentationTransform(entity);
     return this;
+  }
+
+  get interpolationAlpha() {
+    return this.gameConfig?.interpolate === false ? 1 : Math.min(1, this._accumulator / this.fixedTimeStep);
   }
 
   /**
@@ -304,7 +310,22 @@ export class GameSystems {
 
   /** Records remain readable after disposal; errors are bounded to the last 100. */
   getDiagnostics() {
-    return { ...this._diagnostics, errors: this._diagnostics.errors.map((error) => ({ ...error })), initialized: this.initialized, running: this.running, disposed: this.disposed, entities: this.world.entities.length };
+    const scene = this.resources.get("sceneLifecycle")?.instance;
+    const physics = this.resources.get("physics")?.instance;
+    const renderer = this.resources.get("renderer")?.instance?.renderer;
+    return {
+      ...this._diagnostics, errors: this._diagnostics.errors.map((error) => ({ ...error })),
+      initialized: this.initialized, running: this.running, disposed: this.disposed,
+      entities: this.world.entities.length, queries: this.world.queries.size,
+      resources: {
+        meshes: scene?.meshes.size ?? 0,
+        bodies: scene?.bodies.size ?? 0,
+        controllers: scene ? [...scene.bodies.keys()].filter(body => body.controller).length : 0,
+        physicsBodies: physics?.world.bodies?.len() ?? null,
+        physicsColliders: physics?.world.colliders?.len() ?? null,
+      },
+      rendererMemory: renderer?.info?.memory ? { ...renderer.info.memory } : null,
+    };
   }
 
   _reportError(phase, system, error) {
@@ -359,6 +380,11 @@ export class GameSystems {
     );
 
     // === CORE SETUP SYSTEMS (Run Once During Init) ===
+    this.registerResource("triggerLifecycle", (_config, { eventBus }) =>
+      setupTriggerDetection(this.world, eventBus), { dependencies: ["eventBus"] });
+    this.registerResource("collisionLifecycle", (_config, { physics }) =>
+      setupCollisionTracking(physics), { dependencies: ["physics"] });
+
     this.registerSetup("lighting", {
       provides: ["lighting"],
       dependencies: ["renderer"],
@@ -486,7 +512,7 @@ export class GameSystems {
 
     this.registerSystem("transformSync", {
       phase: "frame",
-      update: (world) => transformSyncSystem(world),
+      update: (world) => transformSyncSystem(world, this.interpolationAlpha),
       priority: 65,
     });
 
@@ -503,7 +529,7 @@ export class GameSystems {
       dependencies: ["camera"],
       update: (world, { camera }, deltaTime) =>
         camera.shouldUpdateControls?.() !== false &&
-        cameraUpdateSystem(world, camera.controls, deltaTime),
+        cameraUpdateSystem(world, camera.controls, deltaTime, this.interpolationAlpha),
       priority: 75,
     });
   }

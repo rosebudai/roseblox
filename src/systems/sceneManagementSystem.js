@@ -36,8 +36,8 @@ export function setupSceneManagement(world, { renderer, physics }) {
   state.dispose = () => {
     unsubscribeAdded();
     unsubscribeRemoved();
-    state.meshes.clear();
-    state.bodies.clear();
+    for (const [mesh, ownership] of state.meshes) releaseMesh(state, mesh, ownership, world);
+    for (const body of state.bodies.keys()) releaseBody(state, body, physics);
     sceneStates.delete(renderer);
   };
   sceneStates.set(renderer, state);
@@ -56,6 +56,12 @@ function releaseMesh(state, mesh, { entity, ownsResources, mixer }, world) {
   }
   // GLTF clones share buffers/materials owned by AssetManager.
   if (ownsResources) disposeObject(mesh);
+  else {
+    // SkeletonUtils clones own their skeletons and renderer-created bone textures.
+    const skeletons = new Set();
+    mesh.traverse(child => { if (child.skeleton) skeletons.add(child.skeleton); });
+    for (const skeleton of skeletons) skeleton.dispose();
+  }
   state.meshes.delete(mesh);
 }
 

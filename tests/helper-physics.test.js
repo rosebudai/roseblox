@@ -6,6 +6,8 @@ import { createGame } from "../src/game.js";
 import { createVoxelKit } from "../src/voxelKit.js";
 import { createInteriorLighting, createFramedBox } from "../src/presentation.js";
 import { disposeObject } from "../src/resources/renderer/disposeObject.js";
+import { gltfMeshFactory } from "../src/resources/renderer/meshFactories.js";
+import { createTransform } from "../src/components/transform.js";
 
 // Run the complete core and helper systems with real Rapier and camera-controls.
 // Only the WebGL renderer and keyboard source are substituted for Node.
@@ -108,6 +110,111 @@ function floorAndPlayer(game, config={}) {
   const player=game.addPlayer({position:[0,1,0],radius:.42,height:1.16,speed:4,jumpSpeed:6.2,...config});
   game.followCamera(player,{offset:[0,5.5,8],lookOffset:[0,.7,0]});
   return {floor,player};
+}
+
+test("core queries and owned resources remain bounded across movement and spawn/remove cycles", async t => {
+  const game = await headlessGame(t, { lighting: false });
+  floorAndPlayer(game);
+  advance(game, 1);
+  const before = game.engine.getDiagnostics();
+  game.input.setAction("forward", true);
+  for (let i = 0; i < 1440; i++) {
+    if (i % 12 === 0) {
+      const actor = game.addCharacter({ position: [5, 2, 0] });
+      game.engine.update(1 / 144);
+      game.remove(actor);
+    } else game.engine.update(1 / 144);
+  }
+  game.engine.update(0);
+  const after = game.engine.getDiagnostics();
+  assert.equal(after.queries, before.queries);
+  assert.deepEqual(after.resources, before.resources);
+  assert.equal(after.entities, before.entities);
+  assert.equal(after.errorCount, 0);
+  game.dispose();
+  assert.equal(game.engine.getDiagnostics().resources.controllers, 0);
+});
+
+for (const helper of ["addPlayer", "addCharacter"]) {
+test(`${helper} emits one contact start/end for solid walls and sensors`, async t => {
+  const game = await headlessGame(t, { lighting: false });
+  game.addBox({ size: [30, 1, 30], position: [0, -.5, 0] });
+  const wall = game.addBox({ size: [10, 3, .5], position: [0, 1.5, -3] });
+  const sensor = game.addBox({ size: [2, 3, .2], position: [0, 1.5, -1], sensor: true });
+  const actor = game[helper]({ position: [0, 1, 2], cameraRelative: false, speed: 3, velocity: [0, 0, -3] });
+  const events = [];
+  for (const type of ["collision-started", "collision-ended"]) game.engine.on(type, pair => {
+    if ([pair.entityA, pair.entityB].includes(actor)) events.push({ type, other: pair.entityA === actor ? pair.entityB : pair.entityA });
+  });
+  game.input.setAction("forward", true);
+  advance(game, 2);
+  assert.ok(actor.transform.position.z > -2.4, "wall blocks the helper capsule");
+  assert.equal(events.filter(e => e.type === "collision-started" && e.other === wall).length, 1);
+  assert.equal(events.filter(e => e.type === "collision-started" && e.other === sensor).length, 1);
+  game.input.reset(); game.input.setAction("backward", true);
+  if (actor.character) actor.character.velocity.z = 3;
+  advance(game, 2);
+  assert.equal(events.filter(e => e.type === "collision-ended" && e.other === wall).length, 1);
+  assert.equal(game.engine.getDiagnostics().errorCount, 0);
+});
+}
+
+for (const cameraMode of ["follow", "firstPerson"]) {
+test(`${cameraMode} interpolates 144 Hz presentation while physics and teleports stay authoritative`, async t => {
+  const game = await headlessGame(t, { lighting: false, gravity: { x: 0, y: 0, z: 0 } });
+  const actor = game.addCharacter({ position: [0, 2, 10], velocity: [0, 0, -3] });
+  if (cameraMode === "follow") game.followCamera(actor, { mode: "fixed", offset: [0, 4, 6] });
+  else game.firstPerson(actor);
+  advance(game, 1);
+  const positions = [];
+  for (let i = 0; i < 144; i++) {
+    game.engine.update(1 / 144);
+    positions.push(game.camera.position.z);
+    assert.ok(Math.abs(actor.transform.position.z - actor.body.translation().z) < 1e-7);
+    assert.ok(actor.mesh.position.z >= actor.transform.position.z - 1e-7);
+    assert.ok(actor.mesh.position.z - actor.transform.position.z <= 3 / 60 + 1e-6);
+  }
+  assert.equal(new Set(positions).size, 144);
+  const displayed = actor.mesh.position.clone();
+  game.raycastBetween([0, 2, 20], [0, 2, -20], { entities: [actor] });
+  assert.deepEqual(actor.mesh.position, displayed, "authoritative queries restore the interpolated mesh pose");
+  game.teleport(actor, [8, 2, 0]);
+  game.engine.update(0);
+  assert.equal(actor.mesh.position.x, 8);
+  assert.equal(game.camera.position.x, 8);
+  assert.equal(actor.body.translation().x, 8);
+});
+}
+
+for (const removal of ["entity", "game"]) {
+test(`legacy skinned GLTF releases its clone-owned bone texture on ${removal} removal`, async t => {
+  const game = await headlessGame(t, { lighting: false });
+  const assets = game.engine.getResource("assets");
+  const source = new THREE.SkinnedMesh(new THREE.BoxGeometry(), new THREE.MeshBasicMaterial());
+  const bone = new THREE.Bone(); source.add(bone); source.bind(new THREE.Skeleton([bone]));
+  const root = new THREE.Group(); root.add(source);
+  assets.gltfLoader.load = (_url, done) => done({ scene: root, scenes: [root], animations: [] });
+  await assets.loadGLTF("skin", "fixture.glb");
+  const entity = { transform: createTransform(), renderable: { type: "gltf", assetKey: "skin", scale: 1, position: new THREE.Vector3(), rotation: new THREE.Euler() } };
+  const mesh = gltfMeshFactory(entity, { assets }); entity.renderable.mesh = mesh;
+  game.scene.add(mesh); game.world.add(entity);
+  let skeleton;
+  mesh.traverse(node => { if (node.isSkinnedMesh) skeleton = node.skeleton; });
+  assert.notEqual(skeleton, source.skeleton);
+  skeleton.computeBoneTexture();
+  let releases = 0, sharedReleases = 0;
+  skeleton.boneTexture.addEventListener("dispose", () => releases++);
+  source.geometry.addEventListener("dispose", () => sharedReleases++);
+  if (removal === "entity") {
+    game.remove(entity);
+    assert.equal(releases, 1);
+    assert.equal(sharedReleases, 0);
+  }
+  game.dispose(); game.dispose();
+  assert.equal(releases, 1);
+  assert.equal(sharedReleases, 1);
+  assert.equal(mesh.parent, null);
+});
 }
 
 test("shape helpers preserve supplied material shader type and isolate shared texture disposal", async t => {
@@ -569,7 +676,7 @@ test("firstPerson defaults forward -Z, tracks the eye through movement/reset and
   assert.equal(game.controls.enabled, false);
   game.input.setAction("forward", true); advance(game, .5); game.input.reset();
   assert.ok(player.transform.position.z < -1.5, "W moves toward the visible -Z arena by default");
-  assert.ok(Math.abs(game.camera.position.y - player.transform.position.y - .6) < 1e-7);
+  assert.ok(Math.abs(game.camera.position.y - player.mesh.position.y - .6) < 1e-7);
   pointer.move(180, -70);
   const aim = game.camera.quaternion.clone();
   assert.ok(aim.angleTo(new THREE.Quaternion()) > .2);

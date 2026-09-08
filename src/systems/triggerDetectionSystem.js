@@ -1,72 +1,61 @@
-/**
- * Trigger Detection System
- *
- * Handles overlap detection between entities and trigger zones (sensors).
- * This system is separate from physics collision detection and focuses on
- * game logic triggers like collectibles, damage zones, checkpoints, etc.
- *
- * Uses direct spatial queries for reliable trigger detection without
- * depending on complex physics engine event integration.
- */
+const states = new WeakMap();
 
-/**
- * Trigger detection system - detects overlaps between entities and triggers
- * @param {World} world - ECS world instance
- * @param {Object} eventBus - Event bus for emitting trigger events
- */
+/** Release membership when either ECS query loses an entity or component. */
+export function setupTriggerDetection(world, eventBus) {
+  if (states.has(world)) return states.get(world);
+  const actors = world.with("transform", "triggerDetector");
+  const zones = world.with("transform", "triggerZone");
+  const components = new Map();
+  function exit(trigger, component, triggerable) {
+    if (component.currentlyInside.delete(triggerable)) {
+      eventBus.emit("trigger-exited", { triggerable, trigger, triggerType: component.type ?? "generic" });
+    }
+  }
+  function track(zone) {
+    zone.triggerZone.currentlyInside ??= new Set();
+    components.set(zone, zone.triggerZone);
+  }
+  const unsubscribeAdded = zones.onEntityAdded.subscribe(track);
+  const unsubscribeZone = zones.onEntityRemoved.subscribe(zone => {
+    const component = components.get(zone);
+    components.delete(zone);
+    if (component) for (const actor of [...component.currentlyInside]) exit(zone, component, actor);
+  });
+  const unsubscribeActor = actors.onEntityRemoved.subscribe(actor => {
+    for (const [zone, component] of [...components]) exit(zone, component, actor);
+  });
+  for (const zone of zones) track(zone);
+  const state = {
+    actors, zones, components, exit,
+    dispose() {
+      unsubscribeAdded(); unsubscribeZone(); unsubscribeActor();
+      for (const component of components.values()) component.currentlyInside.clear();
+      components.clear();
+      states.delete(world);
+    },
+  };
+  states.set(world, state);
+  return state;
+}
+
+/** Sphere-overlap triggers use authoritative transforms, independent of physics events. */
 export function triggerDetectionSystem(world, eventBus) {
-  // Get all entities that can trigger (usually players, projectiles, etc.)
-  const triggerableEntities = world.with("transform", "triggerDetector");
-  
-  // Get all trigger zones (collectibles, damage zones, etc.)
-  const triggerZones = world.with("transform", "triggerZone");
-  
-  for (const triggerable of triggerableEntities) {
-    const triggerablePos = triggerable.transform.position;
-    const triggerableRadius = triggerable.triggerDetector.radius || 1.0;
-    
-    for (const triggerZone of triggerZones) {
-      const triggerPos = triggerZone.transform.position;
-      const triggerRadius = triggerZone.triggerZone.radius || 1.0;
-      
-      // Calculate distance between centers
-      const dx = triggerablePos.x - triggerPos.x;
-      const dy = triggerablePos.y - triggerPos.y;
-      const dz = triggerablePos.z - triggerPos.z;
-      const distance = Math.sqrt(dx * dx + dy * dy + dz * dz);
-      
-      // Check if currently overlapping
-      const combinedRadius = triggerableRadius + triggerRadius;
-      const isInside = distance < combinedRadius;
-      
-      // Initialize tracking set if needed
-      if (!triggerZone.triggerZone.currentlyInside) {
-        triggerZone.triggerZone.currentlyInside = new Set();
-      }
-      
-      // Check previous state
-      const wasInside = triggerZone.triggerZone.currentlyInside.has(triggerable);
-      
-      if (isInside && !wasInside) {
-        // Entity entered trigger zone
-        triggerZone.triggerZone.currentlyInside.add(triggerable);
-        
-        eventBus.emit("trigger-entered", {
-          triggerable,
-          trigger: triggerZone,
-          triggerType: triggerZone.triggerZone.type || "generic"
-        });
-        
-      } else if (!isInside && wasInside) {
-        // Entity exited trigger zone
-        triggerZone.triggerZone.currentlyInside.delete(triggerable);
-        
-        eventBus.emit("trigger-exited", {
-          triggerable,
-          trigger: triggerZone,
-          triggerType: triggerZone.triggerZone.type || "generic"
-        });
-      }
+  const { actors, zones, components, exit } = setupTriggerDetection(world, eventBus);
+  for (const zone of zones) {
+    const component = components.get(zone);
+    for (const actor of [...component.currentlyInside]) {
+      if (!actors.has(actor)) exit(zone, component, actor);
+    }
+    for (const actor of actors) {
+      // Event callbacks may remove the current zone or actor.
+      if (!zones.has(zone)) break;
+      const radius = (actor.triggerDetector.radius ?? 1) + (component.radius ?? 1);
+      const a = actor.transform.position, b = zone.transform.position;
+      const inside = (a.x - b.x) ** 2 + (a.y - b.y) ** 2 + (a.z - b.z) ** 2 < radius * radius;
+      if (inside && !component.currentlyInside.has(actor)) {
+        component.currentlyInside.add(actor);
+        eventBus.emit("trigger-entered", { triggerable: actor, trigger: zone, triggerType: component.type ?? "generic" });
+      } else if (!inside) exit(zone, component, actor);
     }
   }
 }

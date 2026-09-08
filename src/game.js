@@ -9,6 +9,7 @@ import { createOwnedMaterial } from "./resources/renderer/ownedMaterial.js";
 import { createEnvironment } from "./environment.js";
 import { createSurfaceMaterials } from "./surfaceMaterials.js";
 import { setBloom } from "./bloom.js";
+import { getPresentationTransform, resetPresentationTransform } from "./presentationTransform.js";
 
 const PLAYER_SKIN = 0.02;
 
@@ -122,7 +123,7 @@ export async function createGame(options = {}) {
         releaseFollow();
         return;
       }
-      const position = follow.entity.transform.position;
+      const position = getPresentationTransform(follow.entity, engine.interpolationAlpha).position;
       const target = position.clone().add(follow.lookOffset);
       if (follow.mode === "fixed") {
         const eye = position.clone().add(follow.offset);
@@ -285,14 +286,23 @@ export async function createGame(options = {}) {
   function intersectEntities(ray, entities) {
     // Synchronize before queries between rendered frames or after teleports.
     const candidates = [...entities].filter(entity => engine.world.has(entity) && entity.mesh);
-    for (const entity of candidates) {
-      if (entity.transform) {
-        entity.mesh.position.copy(entity.transform.position);
-        entity.mesh.quaternion.copy(entity.transform.rotation);
+    const displayed = candidates.map(entity => ({ mesh: entity.mesh, position: entity.mesh.position.clone(), rotation: entity.mesh.quaternion.clone() }));
+    let hit;
+    try {
+      for (const entity of candidates) {
+        if (entity.transform) {
+          entity.mesh.position.copy(entity.transform.position);
+          entity.mesh.quaternion.copy(entity.transform.rotation);
+        }
+        entity.mesh.updateWorldMatrix(true, true);
       }
-      entity.mesh.updateWorldMatrix(true, true);
+      hit = ray.intersectObjects(candidates.filter(entity => entity.mesh.visible).map(entity => entity.mesh), true)[0];
+    } finally {
+      for (const { mesh, position, rotation } of displayed) {
+        mesh.position.copy(position); mesh.quaternion.copy(rotation);
+        mesh.updateWorldMatrix(true, true);
+      }
     }
-    const hit = ray.intersectObjects(candidates.filter(entity => entity.mesh.visible).map(entity => entity.mesh), true)[0];
     if (!hit) return null;
     const entity = candidates.find(candidate => {
       for (let object = hit.object; object; object = object.parent) {
@@ -452,6 +462,7 @@ export async function createGame(options = {}) {
       releaseFirstPerson();
       firstPerson = createFirstPersonCamera({
         entity, camera, controls, canvas: renderer.domElement, input, world: engine.world,
+        getPosition: () => getPresentationTransform(entity, engine.interpolationAlpha).position,
         onDispose(controller) { if (firstPerson === controller) firstPerson = null; },
       }, config);
       return firstPerson;
@@ -502,6 +513,7 @@ export async function createGame(options = {}) {
         entity.body.setLinvel({ x: 0, y: 0, z: 0 }, true);
       }
       entity.transform.position.copy(next);
+      resetPresentationTransform(entity);
       entity.mesh.position.copy(next);
       if (motion) {
         motion.verticalVelocity = 0;

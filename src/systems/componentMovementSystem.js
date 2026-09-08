@@ -21,11 +21,10 @@ export function componentMovementSystem(world, physicsWorld) {
     throw new Error("componentMovementSystem: Physics world is required");
   }
 
-  const query = world
-    .with("physicsBody", "movementState")
-    .where((e) => e.physicsBody.controller);
+  const query = world.with("physicsBody", "movementState");
 
   for (const entity of query) {
+    if (!entity.physicsBody.controller) continue;
     const body = entity.physicsBody.rigidBody;
     const ctrl = entity.physicsBody.controller;
     const velocity = entity.movementState.velocity;
@@ -47,11 +46,6 @@ export function componentMovementSystem(world, physicsWorld) {
         z: quat.z,
         w: quat.w,
       });
-    }
-
-    // Handle movement if there's actual velocity
-    if (velocity.lengthSq() === 0) {
-      continue;
     }
 
     // Use character controller to compute movement with collision

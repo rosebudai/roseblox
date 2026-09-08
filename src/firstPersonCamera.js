@@ -10,7 +10,7 @@ export function firstPersonOptions(options = {}) {
   if (onFire !== void 0 && typeof onFire !== "function") throw new Error("First-person onFire must be a function.");
   return { eyeOffset: new THREE.Vector3(...eyeOffset), sensitivity, yaw, pitch, hideBody, onFire };
 }
-export function createFirstPersonCamera({ entity, camera, controls, canvas, input, world, onDispose }, options) {
+export function createFirstPersonCamera({ entity, camera, controls, canvas, input, world, onDispose, getPosition = () => entity.transform.position }, options) {
   const document2 = canvas.ownerDocument;
   const saved = { controlsEnabled: controls.enabled, playerEnabled: entity.player?.enabled, rotationOrder: camera.rotation.order, cursor: canvas.style.cursor };
   const pitchLimit = Math.PI / 2 - 0.05;
@@ -28,7 +28,7 @@ export function createFirstPersonCamera({ entity, camera, controls, canvas, inpu
     }
   }
   function applyCamera() {
-    camera.position.copy(entity.transform.position).add(options.eyeOffset);
+    camera.position.copy(getPosition()).add(options.eyeOffset);
     camera.rotation.set(pitch, yaw, 0, "YXZ");
   }
   const mouse = createPointerControls({

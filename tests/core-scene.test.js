@@ -5,6 +5,7 @@ import { World } from "miniplex";
 import { sceneManagementSystem, setupSceneManagement } from "../src/systems/sceneManagementSystem.js";
 import { triggerDetectionSystem } from "../src/systems/triggerDetectionSystem.js";
 import { animationSetupSystem } from "../src/systems/animationSetupSystem.js";
+import { collisionSystem, setControllerContacts } from "../src/systems/collisionSystem.js";
 
 function fixture() {
   const world = new World();
@@ -14,6 +15,46 @@ function fixture() {
   const physics = { world: { removeRigidBody(body) { removedBodies.push(body); } } };
   return { world, scene, renderer, physics, assets: {}, removedBodies };
 }
+
+test("trigger memberships exit immediately on entity, detector and zone removal", () => {
+  const world = new World();
+  const zone = world.add({ transform: { position: new THREE.Vector3() }, triggerZone: { radius: 2 } });
+  const events = [];
+  const bus = { emit(type) { events.push(type); } };
+  for (let i = 0; i < 100; i++) {
+    const actor = world.add({ transform: { position: new THREE.Vector3() }, triggerDetector: { radius: .5 } });
+    triggerDetectionSystem(world, bus);
+    if (i % 2) world.removeComponent(actor, "triggerDetector");
+    world.remove(actor);
+    assert.equal(zone.triggerZone.currentlyInside.size, 0);
+  }
+  const actor = world.add({ transform: { position: new THREE.Vector3() }, triggerDetector: { radius: .5 } });
+  triggerDetectionSystem(world, bus);
+  const component = zone.triggerZone;
+  world.removeComponent(zone, "triggerZone");
+  assert.equal(component.currentlyInside.size, 0);
+  world.remove(actor);
+  assert.equal(events.filter(e => e === "trigger-entered").length, 101);
+  assert.equal(events.filter(e => e === "trigger-exited").length, 101);
+});
+
+test("physics and controller contacts share one transition until the final source leaves", () => {
+  const world = new World();
+  const a = world.add({ physicsBody: {} }), b = world.add({ physicsBody: {} });
+  const colliders = new Map([[1, { userData: { entity: a } }], [2, { userData: { entity: b } }]]);
+  let queue = [[1, 2, true]];
+  const physics = { world: { getCollider: handle => colliders.get(handle) }, eventQueue: { drainCollisionEvents(fn) { for (const event of queue) fn(...event); queue = []; } } };
+  const events = []; const eventBus = { emit(type) { events.push(type); } };
+  setControllerContacts(physics, [{ entityA: b, entityB: a, controllerCollision: true }]);
+  collisionSystem(world, { physics, eventBus });
+  setControllerContacts(physics, []);
+  collisionSystem(world, { physics, eventBus });
+  assert.deepEqual(events, ["collision-started"]);
+  queue = [[1, 2, false]];
+  collisionSystem(world, { physics, eventBus });
+  collisionSystem(world, { physics, eventBus });
+  assert.deepEqual(events, ["collision-started", "collision-ended"]);
+});
 
 test("owned instanced meshes release instance buffers and shared geometry exactly once", () => {
   const game = fixture();
