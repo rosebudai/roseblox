@@ -389,9 +389,15 @@ test("fresh player and repeated teleports stay grounded through idle before dela
   assert.equal(game.getDiagnostics().errorCount,0);
 });
 
-test("cleared player still jumps, lands and respects a solid wall", async t => {
+for (const cameraMode of ["follow", "firstPerson"]) {
+test(`default ${cameraMode} player jumps, lands and respects a solid wall`, async t => {
   const game=await headlessGame(t);
-  const {player}=floorAndPlayer(game);
+  const {player}=floorAndPlayer(game,{jumpSpeed:undefined});
+  if(cameraMode==="firstPerson") {
+    pointerFixture(game);
+    game.firstPerson(player).start();
+    await Promise.resolve();
+  }
   game.addBox({size:[20,3,.5],position:[0,1.5,-3]});
   advance(game,2);
   const groundY=player.body.translation().y;
@@ -403,6 +409,87 @@ test("cleared player still jumps, lands and respects a solid wall", async t => {
   assert.ok(Math.abs(player.body.translation().y-groundY)<.03,"landing returns to the same floor without repeated lift");
   game.input.setAction("forward",true);advance(game,2);game.input.reset();
   assert.ok(player.body.translation().z>-2.36&&player.body.translation().z<-2.1,"solid wall blocks the capsule");
+});
+}
+
+test("default player and corrected model face camera yaw while idle, strafing and backing up", async t => {
+  const game = await headlessGame(t);
+  const { player } = floorAndPlayer(game);
+  const art = new THREE.Group();
+  art.rotation.y = Math.PI; // Imported art authored with +Z forward.
+  player.mesh.add(art);
+  advance(game, 1);
+  const start = player.transform.position.clone();
+  const facing = () => new THREE.Vector3(0, 0, -1).applyQuaternion(player.transform.rotation);
+  const cameraHeading = () => { const v = game.camera.getWorldDirection(new THREE.Vector3()); v.y = 0; return v.normalize(); };
+  const check = () => {
+    assert.ok(facing().dot(cameraHeading()) > .999, "physics root follows horizontal camera aim");
+    const visual = new THREE.Vector3(0, 0, 1).applyQuaternion(art.getWorldQuaternion(new THREE.Quaternion()));
+    assert.ok(visual.dot(cameraHeading()) > .999, "corrected child visual inherits one heading");
+    assert.ok(Math.abs(facing().y) < 1e-7, "pitch never tilts the model");
+    assert.equal(art.rotation.y, Math.PI, "authored local axis correction is preserved");
+  };
+  game.controls.setLookAt(8, 6, 0, 0, 1, 0, false);
+  advance(game, .1); check();
+  assert.ok(player.transform.position.distanceTo(start) < .01, "orbiting alone does not move the character");
+  const heading = cameraHeading();
+  for (const action of ["right", "backward"]) {
+    const before = player.transform.position.clone();
+    game.input.setAction(action, true); advance(game, .5); game.input.reset();
+    check();
+    const delta = player.transform.position.clone().sub(before);
+    assert.ok(delta.length() > 1.8, "directional movement remains responsive");
+    assert.ok(action === "backward" ? delta.dot(heading) < -1.8 : Math.abs(delta.dot(heading)) < .01,
+      "backpedal and strafe preserve camera-relative movement");
+  }
+  const p = player.transform.position;
+  game.controls.setLookAt(p.x + 8, p.y + 60, p.z, p.x, p.y, p.z, false);
+  advance(game, .1); check();
+  assert.ok(cameraHeading().dot(heading) > .999, "model turning never changes camera yaw");
+});
+
+test("player facing supports movement/manual ownership and preserves heading when disabled or looking vertically", async t => {
+  const game = await headlessGame(t);
+  const { player } = floorAndPlayer(game, { facing: "movement", cameraRelative: false });
+  advance(game, 1);
+  game.input.setAction("right", true); advance(game, .4); game.input.reset();
+  const east = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), -Math.PI / 2);
+  assert.ok(player.transform.rotation.angleTo(east) < .001, "movement mode faces world-space travel");
+  advance(game, .5);
+  assert.ok(player.transform.rotation.angleTo(east) < .001, "idle movement mode keeps its last heading");
+  player.player.facing = "manual";
+  const custom = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), .4);
+  player.body.setNextKinematicRotation(custom);
+  game.input.setAction("backward", true); advance(game, .4); game.input.reset();
+  assert.ok(player.transform.rotation.angleTo(custom) < .001, "manual ownership survives walking and physics sync");
+  player.player.facing = "camera";
+  player.player.enabled = false;
+  game.controls.setLookAt(-8, 6, 0, 0, 1, 0, false); advance(game, .2);
+  assert.ok(player.transform.rotation.angleTo(custom) < .001, "disabled players do not turn in menus");
+  game.releaseCamera(); game.controls.enabled = false;
+  game.camera.rotation.set(-Math.PI / 2, 0, 0); game.camera.updateMatrixWorld();
+  player.player.enabled = true; advance(game, .2);
+  assert.ok(player.transform.rotation.angleTo(custom) < .001, "vertical camera keeps the previous yaw");
+  const count = game.world.entities.length;
+  assert.throws(() => game.addPlayer({ facing: "invalid" }), /facing/);
+  assert.equal(game.world.entities.length, count, "invalid facing allocates no actor");
+});
+
+test("voxel avatars inherit player heading once without cancelling limb animation", async t => {
+  const game = await headlessGame(t);
+  const { player } = floorAndPlayer(game);
+  createVoxelKit(game, { lighting: false }).avatar(player);
+  const art = player.mesh.children.find(child => child.isGroup);
+  game.controls.setLookAt(8, 6, 8, 0, 1, 0, false); advance(game, 1);
+  game.input.setAction("right", true); advance(game, .3); game.input.reset();
+  assert.ok(art.getWorldQuaternion(new THREE.Quaternion()).angleTo(player.mesh.quaternion) < .001,
+    "strafing does not add a second movement-facing rotation");
+  assert.ok(art.children.some(child => Math.abs(child.rotation.x) > .01), "limbs still animate while moving");
+  player.player.facing = "manual";
+  player.body.setNextKinematicRotation(new THREE.Quaternion());
+  game.input.setAction("backward", true); advance(game, .3); game.input.reset();
+  assert.ok(art.getWorldQuaternion(new THREE.Quaternion()).angleTo(new THREE.Quaternion()) < .001,
+    "voxel presentation also respects custom player rotation");
 });
 
 test("player clearance adapts to fixed step and gravity; exact opt-out and other teleports remain exact", async t => {

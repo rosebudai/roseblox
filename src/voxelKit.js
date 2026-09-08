@@ -121,10 +121,14 @@ export function createVoxelKit(game, { theme = "woodland", seed = 1, lighting = 
       const dz = entity.transform.position.z - avatar.previous.z;
       const distance = Math.hypot(dx, dz);
       const moving = distance > 0.001 && distance < 2;
+      const playerOwnsFacing = entity.player?.facing !== undefined;
+      if (playerOwnsFacing) avatar.root.rotation.y = 0;
       if (moving) {
         avatar.stride += distance * 9;
-        const angle = Math.atan2(-dx, -dz) - avatar.root.rotation.y;
-        avatar.root.rotation.y += Math.atan2(Math.sin(angle), Math.cos(angle)) * Math.min(1, dt * 14);
+        if (!playerOwnsFacing) {
+          const angle = Math.atan2(-dx, -dz) - avatar.root.rotation.y;
+          avatar.root.rotation.y += Math.atan2(Math.sin(angle), Math.cos(angle)) * Math.min(1, dt * 14);
+        }
       }
       for (const { leg, arm, side } of avatar.limbs) {
         const swing = moving ? Math.sin(avatar.stride) * 0.58 * side : 0;

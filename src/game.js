@@ -28,6 +28,11 @@ export async function createGame(options = {}) {
   const followBounds = new THREE.Box3();
   const followSize = new THREE.Vector3();
   const followEye = new THREE.Vector3();
+  const playerForward = new THREE.Vector3();
+  const playerRight = new THREE.Vector3();
+  const playerDirection = new THREE.Vector3();
+  const playerRotation = new THREE.Quaternion();
+  const worldUp = new THREE.Vector3(0, 1, 0);
   let follow = null;
   let firstPerson = null;
   let game;
@@ -38,6 +43,13 @@ export async function createGame(options = {}) {
     dependencies: ["input", "physics", "camera"],
     priority: 30,
     update: (_world, { input, physics, camera }, dt) => {
+      if (!players.size) return;
+      camera.camera.getWorldDirection(playerForward);
+      playerForward.y = 0;
+      const hasCameraHeading = playerForward.lengthSq() >= 0.0001;
+      if (!hasCameraHeading) playerForward.set(0, 0, -1);
+      playerForward.normalize();
+      playerRight.crossVectors(playerForward, camera.camera.up).normalize();
       for (const player of players) {
         if (!engine.world.has(player) || !player.player || !player.physicsBody?.controller) {
           players.delete(player);
@@ -48,16 +60,19 @@ export async function createGame(options = {}) {
         const collider = player.physicsBody.collider;
         const controller = player.physicsBody.controller;
         const movement = control.enabled ? input.getMovementVector() : { x: 0, z: 0 };
-        const direction = new THREE.Vector3(movement.x, 0, movement.z);
+        const direction = playerDirection.set(movement.x, 0, movement.z);
         if (direction.lengthSq() > 1) direction.normalize();
         if (control.cameraRelative) {
-          const forward = camera.camera.getWorldDirection(new THREE.Vector3());
-          forward.y = 0;
-          if (forward.lengthSq() < 0.0001) forward.set(0, 0, -1);
-          forward.normalize();
-          const right = new THREE.Vector3().crossVectors(forward, camera.camera.up).normalize();
-          direction.copy(right.multiplyScalar(movement.x).addScaledVector(forward, -movement.z));
+          direction.copy(playerRight).multiplyScalar(movement.x).addScaledVector(playerForward, -movement.z);
           if (direction.lengthSq() > 1) direction.normalize();
+        }
+        const heading = control.facing === "camera" && hasCameraHeading ? playerForward
+          : control.facing === "movement" && direction.lengthSq() > 0.0001 ? direction : null;
+        if (control.enabled && heading) {
+          // Physics owns the root pose. Rotate it so attached visuals inherit yaw
+          // without losing their authored local model-orientation correction.
+          playerRotation.setFromAxisAngle(worldUp, Math.atan2(-heading.x, -heading.z));
+          body.setNextKinematicRotation(playerRotation);
         }
         const jumpDown = control.enabled && control.jumpSpeed > 0 && input.isActionActive("jump");
         if (control.grounded && jumpDown && !control.jumpHeld) control.verticalVelocity = control.jumpSpeed;
@@ -397,9 +412,11 @@ export async function createGame(options = {}) {
       const speed = positive(config.speed ?? 5, "speed");
       const runSpeed = positive(config.runSpeed ?? 8, "runSpeed");
       const jumpSpeed = nonNegative(config.jumpSpeed ?? 7, "jumpSpeed");
+      const facing = config.facing ?? "camera";
+      if (!["camera", "movement", "manual"].includes(facing)) throw new Error("Player facing must be 'camera', 'movement', or 'manual'.");
       const { entity, spawnClearance } = controlledCapsule(config);
       entity.player = {
-        speed, runSpeed, jumpSpeed, spawnClearance,
+        speed, runSpeed, jumpSpeed, spawnClearance, facing,
         cameraRelative: config.cameraRelative ?? true,
         enabled: true, grounded: false, verticalVelocity: 0, jumpHeld: false,
       };
