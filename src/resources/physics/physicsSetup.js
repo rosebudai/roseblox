@@ -28,7 +28,7 @@ export async function setupPhysics(config = {}) {
   await RAPIER.init();
 
   // Create physics world with gravity
-  const gravity = config.gravity || { x: 0.0, y: -9.81, z: 0.0 };
+  const gravity = config.gravity ?? config.PHYSICS?.GRAVITY ?? { x: 0.0, y: -9.81, z: 0.0 };
   const world = new RAPIER.World(gravity);
 
   // Create an event queue for handling collisions and other physics events
@@ -37,6 +37,7 @@ export async function setupPhysics(config = {}) {
   const bodyFactoryRegistry = new Map();
 
   // The physics resource that will be available to all systems
+  let disposed = false;
   const physicsResource = {
     RAPIER, // Expose the RAPIER library for advanced use in game factories
     world,
@@ -48,7 +49,13 @@ export async function setupPhysics(config = {}) {
     getBodyFactory: (componentName) => {
       return bodyFactoryRegistry.get(componentName);
     },
-    // We can add other physics-related utilities here in the future
+    dispose() {
+      if (disposed) return;
+      disposed = true;
+      bodyFactoryRegistry.clear();
+      eventQueue.free();
+      world.free();
+    },
   };
 
   // The engine does not register any default body factories.

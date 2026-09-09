@@ -1,135 +1,99 @@
-# Roseblox: A Three.js Game Engine
+# Roseblox
 
-[![npm version](https://img.shields.io/npm/v/roseblox-game-engine.svg)](https://www.npmjs.com/package/roseblox-game-engine)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+A small JavaScript engine for browser 3D games, built on Three.js, Rapier, Miniplex and camera-controls. Roseblox supplies reusable physics, input, entity lifecycle and camera building blocks while leaving game rules in ordinary JavaScript modules that a person or model can edit.
 
-Roseblox is a lightweight, modern, and extensible game engine for creating 3D experiences on the web. It powers the 3D game templates on [Rosebud.ai](https://rosebud.ai), enabling AI-assisted game creation at scale. Built on top of industry-leading libraries like **Three.js**, **Rapier**, and **Miniplex**, it's designed with a "buildless" philosophy that enables rapid prototyping and iteration.
+This development version modernizes the 2025 engine. It retains `engine`, `CoreComponents`, resource/setup/system registration and direct access to the underlying libraries. New games can use the smaller `createGame` API; multiple previews should use independent instances.
 
-## Why Roseblox?
+## Use in a generated game
 
-The primary motivation for Roseblox is to create an **AI-friendly game engine** that excels at AI-assisted 3D game development. Traditional game engines often have complex abstractions and implicit conventions that make them challenging for AI code generation. Roseblox addresses this with:
+The accompanying Gateway integration supplies `rosie/roseblox.js` and `rosie/ROSEBLOX.md` to Playground's 3D projects. The compact guide is included in agentic model context for creation and follow-up edits while the engine and guide remain present. Engine implementation source is available on demand. Import the module and retain the starter's Three.js importmap. The complete compact API contract is in [docs/ROSEBLOX.md](docs/ROSEBLOX.md).
 
-- **Clear, Predictable Patterns** - Consistent ECS architecture that AI can easily understand and extend
-- **Explicit Dependencies** - All system dependencies are clearly defined, making it easy for AI to understand data flow
-- **Self-Documenting Code** - Structure encourages descriptive system names and clear component definitions
-- **Minimal Magic** - No hidden behaviors or implicit conventions that could confuse AI-generated code
-- **Composable Systems** - Small, focused systems that AI can combine to create complex behaviors
-- **Human-Readable Builds** - The build process preserves readable code without minification, making debugging and AI analysis straightforward
+```js
+import { createGame } from './rosie/roseblox.js';
 
-## Key Features
-
-- 🎮 **ECS Architecture** - Clean Entity-Component-System pattern
-- 🌐 **Physics** - Rapier3D integration with collision detection
-- 🎨 **Rendering** - Full Three.js capabilities
-- 📷 **Camera** - Smooth controls with physics-aware collision
-- 🎯 **Input** - Keyboard, mouse, and pointer lock support
-- 🔧 **Modular** - Priority-based system execution
-- 🚀 **Buildless** - Native ES modules, no bundling required
-
-## Installation
-
-### Including Engine Source for AI Development
-
-For optimal AI-assisted development, include the Roseblox source directly in your project:
-
-```bash
-# Copy the engine source to your project
-cp roseblox-game-engine.js ./your-project/
-
-# This allows AI assistants to read and understand the engine internals
+const game = await createGame({ canvas: document.querySelector('canvas') });
+game.addBox({ size: [30, 1, 30], position: [0, -0.5, 0], color: '#72a77c' });
+const player = game.addPlayer({ position: [0, 2, 4], speed: 5 });
+game.followCamera(player);
+game.onUpdate(() => {
+  if (player.transform.position.y < -15) game.teleport(player, [0, 2, 4]);
+});
+window.addEventListener('pagehide', () => game.dispose(), { once: true });
 ```
 
-The engine is designed to be readable by AI tools - keeping the source accessible enables better code generation and debugging.
+`followCamera` lets players drag with either mouse button to orbit and scroll to zoom while following the character. It preserves their angle and distance during movement. Use `game.followCamera(player, { mode: 'fixed' })` when the game needs a locked world-offset view. Releasing the camera or removing its target restores the prior controls configuration.
 
-## Quick Start
+For generated or retrieved GLB art, `await game.attachModel(entity, assetUrl, {height: 2})` fits an appearance to an existing movement/collision owner. It preserves textures, supports clips that actually exist in the file, and handles independent instances and asynchronous cleanup. Static models remain static; game code can move and turn the whole actor. Choose each game's materials, lighting and asset prompts to match its requested style.
 
-Add Roseblox to your HTML via importmap:
+For large walls and floors, `await game.loadMaterial(textureUrl, {repeat:[12,16]})` loads an owned, repeating base-color material with sRGB color and anisotropic filtering. Set repeats from the surface dimensions and intended tile size, then pass the result as a shape's `material`. Image downloads are shared; material sampling and disposal stay independent. The guide includes a two-surface setup using generated `texture_tile` assets.
+
+`game.firstPerson(player, {onFire})` owns desktop eye-follow, pointer look, lock and pause/resume. `game.addCharacter` supplies input-independent grounded NPCs driven by world-space velocity with capsule collision. `game.raycastBetween` checks world-space sight or projectile segments independently of the player's camera. These helpers leave combat, routes and objectives in game code.
+
+For generated first-person weapons, `game.attachCameraModel(url, {sourceForward:"long-axis", framing:"held"})` measures the horizontal geometry axis and allows a bounded bottom crop for the rear/grip. A `forwardHint` chooses the muzzle end; its default +Z is an assumption, and the returned orientation metadata exposes weak direction hints. Known authored directions can still use an exact `sourceForward` vector. Contained framing remains the default for general props. Placement refits after projection changes and shares the existing asset cache and disposal contract. Keep game-specific recoil in game code.
+
+Import standalone `createHud` for themed readouts, controls, Start/Restart and an optional crosshair. Named stats and visual tokens support different genres without repeating HTML/CSS; the HUD owns presentation while callbacks own game state and resets.
+
+For native block-world visuals, import optional `createVoxelKit`. It provides three themed palettes, layered solid platforms, instanced trees/rocks/flowers/clouds, animated block avatars, decorative pickups, pooled effects and an adaptable pixel HUD. Game rules remain in caller code. See the complete setup/reset example in the [API guide](docs/ROSEBLOX.md) and the small playable [voxel example](examples/voxel/main.js). Kit resources are scoped to the owning game and also support manual disposal.
+
+For a standalone page, use `build/roseblox.js` and an importmap:
 
 ```html
 <script type="importmap">
-  {
-    "imports": {
-      "three": "https://esm.sh/three@0.163.0",
-      "three/": "https://esm.sh/three@0.163.0/",
-      "@dimforge/rapier3d-compat": "https://esm.sh/@dimforge/rapier3d-compat@0.17.3",
-      "miniplex": "https://esm.sh/miniplex@2.0.0",
-      "camera-controls": "https://esm.sh/camera-controls@2.10.1?external=three",
-      "roseblox-game-engine": "./roseblox-game-engine.js"
-    }
-  }
+{"imports":{
+  "three":"https://esm.sh/three@0.184.0",
+  "three/":"https://esm.sh/three@0.184.0/"
+}}
 </script>
 ```
 
-Create your game in `main.js`:
+The browser build bundles the engine, Miniplex and camera-controls. It shares your Three.js instance and imports pinned Rapier 0.20.0 from HTTPS. The readable engine stays small enough for source inspection and Playground's validator; Rapier's inline WebAssembly is not copied into the model's project files. CDN access is required on first load.
 
-```js
-import { engine, CoreComponents } from "roseblox-game-engine";
-import * as THREE from "three";
+## Lifecycle and timing
 
-// Create a simple scene with rotating cubes
-engine.registerSetup("create-scene", {
-  dependencies: ["renderer"],
-  init: (world, dependencies) => {
-    // Add entities with transform and renderable components
-    world.add({
-      transform: CoreComponents.createTransform(new THREE.Vector3(0, 0, 0)),
-      renderable: CoreComponents.createRenderableMetadata(
-        "procedural",
-        { type: "box", width: 1, height: 1, depth: 1 },
-        { type: "standard", color: 0x00ff00 }
-      ),
-    });
-  },
-});
+`createGame()` and `createEngine()` produce independent instances. `start()` is idempotent, `stop()` pauses without accumulating elapsed time, and `dispose()` releases listeners, graphics and physics resources permanently. Initialize with `autoStart:false` to drive `engine.update(seconds)` manually.
 
-// Initialize and run
-await engine.init({ canvas: document.getElementById("game-canvas") });
+Simulation and gameplay run at 60 fixed steps per second by default. Frame callbacks handle presentation; `maxSubSteps` bounds catch-up after stalls. Core dependency failures fail initialization with an actionable error. Runtime errors stop the game and are recorded in `getDiagnostics()`; `errorMode:'continue'` explicitly disables a failing system and continues. Diagnostics help debugging but do not establish gameplay quality.
+
+Low-level systems accept `phase:'fixed'|'frame'` and priority. Existing callbacks default to fixed simulation. Use frame phase for presentation-only work. Resource factories may declare dependencies; setup callbacks wait for resources produced by other setups. See source for the full low-level API.
+
+## Development
+
+For Rosebud workspace work, install dependencies and run code in the selected workstation. Host-side edits and Git inspection are supported.
+
+```sh
+npm ci
+npm test
+npm run build
+python -m http.server 8893
 ```
 
-## Examples
+Open `/examples/modern/` for Meadow Run, a small playable demonstration of the compact API. `/examples/getting-started/` and `/examples/adventure/` retain the original ECS examples. The build writes `roseblox-game-engine.js` as a compatibility filename for existing template symlinks.
 
-- **Getting Started**: [examples/getting-started](examples/getting-started/) - Basic scene setup
-- **Adventure Game**: [examples/adventure](examples/adventure/) - Full game with character controller, physics, and interactions
+Run browser checks in a Chromium-capable workstation:
 
-Run examples with any local server:
-```bash
-python3 -m http.server 8001
+```sh
+node tests/game-browser.mjs http://127.0.0.1:8893/examples/modern/ /tmp/roseblox-browser-evidence
+node tests/camera-browser.mjs http://127.0.0.1:8893 /tmp/roseblox-camera-evidence
+node tests/hud-browser.mjs http://127.0.0.1:8893 /tmp/roseblox-hud-evidence
+node --test benchmarks/evaluate.test.mjs benchmarks/visible-text.test.mjs
 ```
 
-## Architecture
+The example test checks real movement, collection, win, restart, jump, fixed-step behavior and disposal. The benchmark runner under `benchmarks/` captures independent browser evidence for generated games and separates load success, requested behavior, and visual review. Missing evidence remains ungraded.
 
-Roseblox integrates best-in-class libraries with a clean, AI-friendly architecture:
+## Playground packaging
 
-- **Libraries**: Three.js (rendering), Rapier (physics), Miniplex (ECS), camera-controls
-- **Pattern**: Resource → Setup → Runtime system execution
-- **Philosophy**: Use engine patterns for common tasks, access raw libraries for advanced features
+After building, copy the verified module and guide to Gateway:
 
-### System Execution Order
+```sh
+node scripts/sync-playground.mjs /workspace/PlaygroundGatewayV2
+```
 
-Systems run in priority order (lower = earlier):
+The generated manifest records the source commit, whether the source was dirty, dependency versions and file hashes. Rebuild and resync after every engine/guide change. The source revision alone does not identify an uncommitted build; compare the recorded hashes. The integration makes Roseblox available to 3D creates and retains it in revisions for normal follow-up edits. Benchmark baseline runs can disable this injection per evaluation context.
 
-- **10-20**: Input handling
-- **30-40**: Movement and character control
-- **40-45**: Physics simulation
-- **50-65**: Animation and effects
-- **70-75**: Camera updates
-- **999**: Debug overlays
+The evaluation harness selects Rosie through the application's route: configured Sol for creation and Luna for edits, with execution metadata retained for verification. A September 5, 2026 local pilot collected four creates and eight edits with optional library discovery; neither treatment project used the engine. After the guide was supplied directly in agentic context, a separate coin-course episode used Roseblox in its create and both edits. Creation and restart passed the requested input checks; the night edit failed the frozen timing check in software-rendered Chromium, while a separate longer traversal completed the win/restart loop. This small sample verifies integration and identifies a performance concern; it does not establish a population-wide improvement or quality on other models. Engine APIs remain provider independent.
 
-## Browser Requirements
+## Browser support
 
-Roseblox requires a modern browser with ES modules support:
+Modern browsers with ES modules, importmaps and WebGL2. Input helpers currently target keyboard/mouse. Existing Rosie touch controls or custom game input can supply mobile behavior. Advanced FPS cameras and genre-specific controls can use raw Three.js/camera-controls/Rapier APIs.
 
-- Chrome 61+
-- Firefox 60+
-- Safari 11+
-- Edge 79+
-
-## Contributing
-
-We welcome contributions! Please see our [Contributing Guide](CONTRIBUTING.md) for details.
-
-## License
-
-MIT © 2025 mike.liu.dev@gmail.com
-
-See [LICENSE](LICENSE) for details.
+MIT. Original engine © 2025 Mike Liu. See [LICENSE](LICENSE).

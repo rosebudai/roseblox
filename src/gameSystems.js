@@ -1,36 +1,5 @@
-/**
- * @module Engine
- * @description
- * The central orchestrator of the Rosebud game engine.
- *
- * This class manages the entire lifecycle of the game, including the Entity-Component-System (ECS) world,
- * shared resources (like the renderer and physics engine), and the execution of game logic through setup and runtime systems.
- * It follows a pattern common in modern game engines where the engine's flow is divided into distinct phases:
- *
- * 1.  **Registration**: Game-specific setup and runtime systems are registered with the engine before initialization.
- * 2.  **Initialization (`init`)**: The engine initializes core resources (renderer, physics, etc.), runs all registered setup systems in dependency order, and starts the game loop.
- * 3.  **Update Loop**: On every frame, all runtime systems are executed in a deterministic order based on their registered priority.
- *
- * The `GameSystems` class also provides a simple event bus for decoupled communication between different parts of the engine and game logic.
- *
- * @example
- * // In your main game file:
- * import { engine } from "roseblox-game-engine";
- *
- * // Register a custom system that runs every frame
- * engine.registerSystem("my-game-logic", {
- *   update: (world, dependencies, deltaTime) => {
- *     console.log(`Frame delta: ${deltaTime}`);
- *   },
- *   priority: 50
- * });
- *
- * // Initialize and start the engine
- * await engine.init({ canvas: myCanvasElement });
- */
-
 import { World } from "miniplex";
-import * as THREE from "three";
+import { resetPresentationTransform } from "./presentationTransform.js";
 
 // Core Engine Resource Setups
 import { setupRenderer } from "./resources/renderer/rendererSetup.js";
@@ -47,7 +16,7 @@ import { pointerLockSystem } from "./systems/pointerLockSystem.js";
 import { componentMovementSystem } from "./systems/componentMovementSystem.js";
 import { stepPhysics } from "./systems/stepPhysicsSystem.js";
 import { physicsStateSyncSystem } from "./systems/physicsStateSyncSystem.js";
-import { sceneManagementSystem } from "./systems/sceneManagementSystem.js";
+import { sceneManagementSystem, setupSceneManagement } from "./systems/sceneManagementSystem.js";
 import { animationSetupSystem } from "./systems/animationSetupSystem.js";
 import { animationSystem } from "./systems/animationSystem.js";
 import { transformSyncSystem } from "./systems/transformSyncSystem.js";
@@ -55,357 +24,342 @@ import { cameraUpdateSystem } from "./systems/cameraUpdateSystem.js";
 import { physicsBodySetupSystem } from "./systems/physicsBodySetupSystem.js";
 import { parentingSystem } from "./systems/parentingSystem.js";
 import { debugRenderSystem } from "./systems/debugRenderSystem.js";
-import { collisionSystem } from "./systems/collisionSystem.js";
+import { collisionSystem, setupCollisionTracking } from "./systems/collisionSystem.js";
 import { characterControllerCollisionSystem } from "./systems/characterControllerCollisionSystem.js";
 import { physicsCameraCollisionSystem } from "./systems/physicsCameraCollisionSystem.js";
-import { triggerDetectionSystem } from "./systems/triggerDetectionSystem.js";
+import { triggerDetectionSystem, setupTriggerDetection } from "./systems/triggerDetectionSystem.js";
 
 /**
- * @class GameSystems
- * @memberof module:Engine
- * @description The main engine class that orchestrates the game lifecycle.
+ * A game instance. Resources and ECS state belong to this instance.
+ * Existing registerSetup/registerSystem callbacks remain supported.
  */
 export class GameSystems {
-  constructor() {
-    // Single ECS world - all entities live here
+  constructor(options = {}) {
     this.world = new World();
-
-    // Shared resources (singletons) - Physics, Renderer, etc.
     this.resources = new Map();
-
-    // Systems that run once during initialization
     this.setupSystems = [];
-
-    // Systems that run every frame in priority order
     this.runtimeSystems = [];
-
-    // Initialization state
-    this.initialized = false;
-
-    // Event bus for pub/sub
     this.eventListeners = new Map();
+    this.initialized = false;
+    this.initializing = false;
+    this.running = false;
+    this.disposed = false;
+    this.options = options;
+    this._resourceOrder = [];
+    this._raf = null;
+    this._lastTime = null;
+    this._accumulator = 0;
+    this._diagnostics = { frames: 0, fixedSteps: 0, simulatedSeconds: 0, droppedSeconds: 0, errorCount: 0, errors: [] };
+    this._requestFrame = options.requestAnimationFrame ?? ((callback) => globalThis.requestAnimationFrame(callback));
+    this._cancelFrame = options.cancelAnimationFrame ?? ((id) => globalThis.cancelAnimationFrame(id));
+  }
 
-    this.clock = new THREE.Clock();
+  _assertRegistrable() {
+    if (this.disposed) throw new Error("This engine was disposed. Create a new engine with createEngine().");
+    if (this.initialized) throw new Error("Register resources and systems before calling init().");
+  }
+
+  /** Factory receives (gameConfig, dependencies, engine). */
+  registerResource(name, factory, { dependencies = [] } = {}) {
+    this._assertRegistrable();
+    if (this.resources.has(name)) throw new Error(`Resource '${name}' is already registered.`);
+    if (typeof factory !== "function") throw new TypeError(`Resource '${name}' needs a factory function.`);
+    this.resources.set(name, { factory, dependencies, instance: undefined });
+    return this;
   }
 
   /**
-   * Register a shared resource (singleton service) that can be injected into systems.
-   * @param {string} name - A unique name for the resource (e.g., 'renderer', 'physics').
-   * @param {function(object): Promise<object>|object} factory - A function that creates the resource instance. It receives the game config object. Can be async.
-   * @throws {Error} If called after the engine has been initialized.
+   * init receives (world, dependencies, gameConfig, engine).
+   * Optional provides documents resources published with engine.addResource().
+   * Setups wait until dependencies exist, including resources from later setups.
    */
-  registerResource(name, factory) {
-    if (this.initialized) {
-      throw new Error(
-        `Cannot register resource '${name}' after initialization`
-      );
-    }
-    this.resources.set(name, { factory, instance: null });
+  registerSetup(name, { init, dependencies = [], provides = [] }) {
+    this._assertRegistrable();
+    if (this.setupSystems.some((setup) => setup.name === name)) throw new Error(`Setup '${name}' is already registered.`);
+    if (typeof init !== "function") throw new TypeError(`Setup '${name}' needs an init function.`);
+    this.setupSystems.push({ name, init, dependencies, provides });
+    return this;
   }
 
   /**
-   * Registers a setup system.
-   * Setup systems run once during engine initialization and are used for creating
-   * initial entities, registering component-specific factories, and other one-time setup tasks.
-   * They are executed in an order determined by their dependencies.
-   *
-   * @param {string} name - A unique name for the setup system.
-   * @param {object} config - The configuration for the setup system.
-   * @param {function(World, object<string, any>, object, GameSystems): Promise<void>|void} config.init - The function to execute.
-   *   It receives the ECS `world`, a `dependencies` object containing the requested resource instances, the global `gameConfig` object,
-   *   and the `engine` instance itself. This function can be async.
-   * @param {string[]} [config.dependencies=[]] - An array of resource names this system needs (e.g., ['renderer', 'physics']). The system will not run until these resources are available.
-   * @throws {Error} If called after the engine has been initialized.
-   *
-   * @example
-   * engine.registerSetup("create-player", {
-   *   dependencies: ["physics"],
-   *   init: (world, { physics }, config, engine) => {
-   *     // logic to create the player entity and its physics body
-   *     // You can also call engine.addResource() here if needed
-   *   }
-   * });
+   * update receives (world, dependencies, deltaTime, engine).
+   * The default fixed phase runs gameplay and physics together at fixedTimeStep.
+   * Use phase: "frame" for camera, presentation, and UI work once per render.
+   * Lower priority runs first within each phase.
    */
-  registerSetup(name, { init, dependencies = [] }) {
-    if (this.initialized) {
-      throw new Error(
-        `Cannot register setup system '${name}' after initialization`
-      );
-    }
-    this.setupSystems.push({
-      name,
-      init,
-      dependencies,
-    });
-  }
-
-  /**
-   * Registers a runtime system.
-   * Runtime systems are executed every frame in a specific order defined by their priority.
-   * They contain the core game logic that reads and writes component data.
-   *
-   * @param {string} name - A unique name for the runtime system.
-   * @param {object} config - The configuration for the runtime system.
-   * @param {function(World, object<string, any>, number): void} config.update - The function to execute every frame.
-   *   It receives the ECS `world`, a `dependencies` object containing requested resource instances, and the `deltaTime` since the last frame.
-   * @param {string[]} [config.dependencies=[]] - An array of resource names this system needs. These resources will be passed in the `dependencies` object.
-   * @param {number} [config.priority=0] - The execution priority. Lower numbers run first.
-   * @throws {Error} If called after the engine has been initialized.
-   *
-   * @example
-   * engine.registerSystem("player-input", {
-   *   dependencies: ["input"],
-   *   update: (world, { input }, deltaTime) => {
-   *     // logic to read input and update player components
-   *   },
-   *   priority: 10
-   * });
-   */
-  registerSystem(name, { update, dependencies = [], priority = 0 }) {
-    if (this.initialized) {
-      throw new Error(
-        `Cannot register runtime system '${name}' after initialization`
-      );
-    }
-    this.runtimeSystems.push({
-      name,
-      update,
-      dependencies,
-      priority,
-    });
-
-    // Keep runtime systems sorted by priority
+  registerSystem(name, { update, dependencies = [], priority = 0, phase = "fixed" }) {
+    this._assertRegistrable();
+    if (this.runtimeSystems.some((system) => system.name === name)) throw new Error(`Runtime system '${name}' is already registered.`);
+    if (typeof update !== "function") throw new TypeError(`Runtime system '${name}' needs an update function.`);
+    if (!["fixed", "frame"].includes(phase)) throw new Error(`System '${name}' phase must be 'fixed' or 'frame'.`);
+    if (!Number.isFinite(priority)) throw new Error(`System '${name}' priority must be finite.`);
+    this.runtimeSystems.push({ name, update, dependencies, priority, phase });
     this.runtimeSystems.sort((a, b) => a.priority - b.priority);
+    return this;
   }
 
   /**
-   * Initializes all core resources, runs all registered setup systems, and starts the game loop.
-   * This method must be called after all game-specific systems have been registered.
-   *
-   * @param {object} [gameConfig={}] - A configuration object that is passed to all resource factories and setup systems.
-   * @param {HTMLCanvasElement} gameConfig.canvas - The canvas element for rendering.
-   * @param {boolean} [gameConfig.DEBUG=false] - If true, enables debug features like the physics wireframe renderer.
-   * @returns {Promise<void>} A promise that resolves when initialization is complete and the game loop has started.
-   * @throws {Error} If the engine is already initialized or if any part of the setup fails.
+   * Initialize once. autoStart:false supports deterministic tests/manual update(dt).
+   * fixedTimeStep is seconds; maxSubSteps bounds work after a stalled frame.
+   * onError receives diagnostic records. Errors stop the loop by default;
+   * errorMode:"continue" disables the failing system and continues the game.
    */
   async init(gameConfig = {}) {
-    if (this.initialized) {
-      throw new Error("GameSystems already initialized");
-    }
+    this._assertRegistrable();
+    if (this.initializing) throw new Error("Engine initialization is already in progress.");
     this.gameConfig = gameConfig;
-
-    // This is the key change: The engine now registers its own core systems.
-    this._registerCoreSystems();
-
-    // Conditionally register optional, built-in systems based on config
-    if (gameConfig.DEBUG) {
-      this.registerSystem("debug-renderer", {
-        update: debugRenderSystem,
-        dependencies: ["physics", "renderer"],
-        priority: 999, // Run last
-      });
-    }
-
+    this.fixedTimeStep = gameConfig.fixedTimeStep ?? 1 / 60;
+    this.maxSubSteps = gameConfig.maxSubSteps ?? 8;
+    this.maxFrameDelta = gameConfig.maxFrameDelta ?? 0.25;
+    if (!Number.isFinite(this.fixedTimeStep) || this.fixedTimeStep <= 0) throw new Error("fixedTimeStep must be a positive number of seconds.");
+    if (!Number.isInteger(this.maxSubSteps) || this.maxSubSteps < 1) throw new Error("maxSubSteps must be a positive integer.");
+    if (!Number.isFinite(this.maxFrameDelta) || this.maxFrameDelta <= 0) throw new Error("maxFrameDelta must be positive.");
+    this.initializing = true;
     try {
-      // Phase 1: Initialize all resources, passing the game config to their factories
-      for (const [name, resource] of this.resources) {
-        if (resource.factory) {
-          resource.instance = await resource.factory(gameConfig);
-        }
+      this.addResource("eventBus", this);
+      if (this.options.coreSystems !== false) this._registerCoreSystems();
+      if (gameConfig.DEBUG && this.options.coreSystems !== false) {
+        this.registerSystem("debug-renderer", { update: debugRenderSystem, dependencies: ["physics", "renderer"], phase: "frame", priority: 999 });
       }
-
-      // Phase 2: Run setup systems in dependency order
-      const completed = new Set();
-      const inProgress = new Set();
-
-      for (const setup of this.setupSystems) {
-        await this._runSetupSystem(setup, completed, inProgress, gameConfig);
+      await this._initializeResourcesAndSetups();
+      if (this.disposed) throw new Error("Engine was disposed during initialization.");
+      // Missing runtime dependencies are initialization errors, not per-frame spam.
+      for (const system of this.runtimeSystems) {
+        try { this._getDependencies(system.dependencies); }
+        catch (error) { throw new Error(`Runtime system '${system.name}': ${error.message}`, { cause: error }); }
       }
-
       this.initialized = true;
-      this.start(); // Start the animation loop
+      if (gameConfig.autoStart !== false) this.start();
+      return this;
     } catch (error) {
-      console.error("❌ GameSystems initialization failed:", error);
+      this._reportError("initialization", "init", error);
+      this.dispose();
       throw error;
+    } finally {
+      this.initializing = false;
     }
   }
 
-  /**
-   * Kicks off and maintains the game loop.
-   * @private
-   * @internal
-   */
-  start() {
-    const animate = () => {
-      const deltaTime = this.clock.getDelta();
-      this.update(deltaTime);
-      requestAnimationFrame(animate);
-    };
-    animate();
-  }
-
-  /**
-   * Run setup system with dependency resolution
-   * @private
-   * @internal
-   */
-  async _runSetupSystem(setup, completed, inProgress, gameConfig) {
-    if (completed.has(setup.name)) {
-      return;
-    }
-
-    if (inProgress.has(setup.name)) {
-      throw new Error(
-        `Circular dependency detected in setup system: ${setup.name}`
-      );
-    }
-
-    // Check if dependencies are satisfied
-    for (const depName of setup.dependencies) {
-      if (!this.resources.has(depName)) {
-        throw new Error(
-          `Setup system '${setup.name}' requires unknown resource: ${depName}`
-        );
+  async _initializeResourcesAndSetups() {
+    const pending = [
+      ...[...this.resources].filter(([, resource]) => resource.factory).map(([name, resource]) => ({ name, resource, dependencies: resource.dependencies })),
+      ...this.setupSystems.map((setup) => ({ ...setup, setup: true })),
+    ];
+    while (pending.length) {
+      let progressed = false;
+      for (let i = 0; i < pending.length;) {
+        const task = pending[i];
+        if (!task.dependencies.every((name) => this._hasResource(name))) { i++; continue; }
+        const dependencies = this._getDependencies(task.dependencies);
+        try {
+          if (task.setup) {
+            await task.init(this.world, dependencies, this.gameConfig, this);
+            for (const name of task.provides) {
+              if (!this._hasResource(name)) throw new Error(`Declared resource '${name}' was not provided. Call engine.addResource('${name}', value).`);
+            }
+          } else {
+            const instance = await task.resource.factory(this.gameConfig, dependencies, this);
+            if (this.disposed) { instance?.dispose?.(); throw new Error("Engine was disposed during initialization."); }
+            if (instance == null) throw new Error("Resource factory must return a value.");
+            task.resource.instance = instance;
+            this._resourceOrder.push(task.name);
+          }
+          if (this.disposed) throw new Error("Engine was disposed during initialization.");
+        } catch (error) {
+          throw new Error(`${task.setup ? "Setup" : "Resource"} '${task.name}' failed: ${error.message}`, { cause: error });
+        }
+        pending.splice(i, 1);
+        progressed = true;
+      }
+      if (!progressed) {
+        const missing = pending.map((task) => `'${task.name}' needs [${task.dependencies.filter((name) => !this._hasResource(name)).join(", ")}]`).join("; ");
+        throw new Error(`Unresolved setup/resource dependencies: ${missing}. Register the missing resources or break the dependency cycle.`);
       }
     }
+  }
 
-    inProgress.add(setup.name);
+  /** Idempotent resume; no elapsed paused time is added to the simulation. */
+  start() {
+    if (!this.initialized || this.disposed) throw new Error("Call init() on a live engine before start().");
+    if (this.running) return this;
+    this.running = true;
+    this._lastTime = null;
+    const animate = (time) => {
+      this._raf = null;
+      if (!this.running || this.disposed) return;
+      const deltaTime = this._lastTime == null ? 0 : Math.max(0, (time - this._lastTime) / 1000);
+      this._lastTime = time;
+      try { this.update(deltaTime); }
+      catch { this.stop(); return; } // update already reported a named diagnostic.
+      if (this.running && !this.disposed) this._raf = this._requestFrame(animate);
+    };
+    try { this._raf = this._requestFrame(animate); }
+    catch (error) { this.running = false; throw error; }
+    return this;
+  }
 
-    try {
-      // Gather dependencies
-      const deps = this._getDependencies(setup.dependencies);
+  stop() {
+    this.running = false;
+    if (this._raf != null) this._cancelFrame(this._raf);
+    this._raf = null;
+    this._lastTime = null;
+    this._accumulator = 0;
+    this.resources.get("input")?.instance?.reset?.();
+    for (const entity of this.world) resetPresentationTransform(entity);
+    return this;
+  }
 
-      // Run setup system, passing the game config and engine instance
-      await setup.init(this.world, deps, gameConfig, this);
-
-      completed.add(setup.name);
-      inProgress.delete(setup.name);
-    } catch (error) {
-      inProgress.delete(setup.name);
-      throw new Error(`Setup system '${setup.name}' failed: ${error.message}`);
-    }
+  get interpolationAlpha() {
+    return this.gameConfig?.interpolate === false ? 1 : Math.min(1, this._accumulator / this.fixedTimeStep);
   }
 
   /**
-   * Update all runtime systems (call every frame)
-   * @param {number} deltaTime - Frame delta time in seconds
+   * Advance elapsed seconds: fixed gameplay/physics steps, then one visual frame.
+   * This keeps movement and collision behavior independent of display refresh rate.
    */
   update(deltaTime) {
-    if (!this.initialized) {
-      throw new Error("GameSystems not initialized. Call init() first.");
+    if (!this.initialized || this.disposed) throw new Error("GameSystems not initialized. Call init() first.");
+    if (!Number.isFinite(deltaTime) || deltaTime < 0) throw new Error("update(deltaTime) requires finite, non-negative seconds.");
+    const frameDelta = Math.min(deltaTime, this.maxFrameDelta);
+    this._diagnostics.droppedSeconds += deltaTime - frameDelta;
+    this._accumulator += frameDelta;
+    let steps = 0;
+    while (this._accumulator + 1e-10 >= this.fixedTimeStep && steps < this.maxSubSteps) {
+      this._runSystems("fixed", this.fixedTimeStep);
+      if (this.disposed) return;
+      this._accumulator = Math.max(0, this._accumulator - this.fixedTimeStep);
+      this._diagnostics.fixedSteps++;
+      this._diagnostics.simulatedSeconds += this.fixedTimeStep;
+      steps++;
     }
-
-    // Run all runtime systems in priority order
-    for (const system of this.runtimeSystems) {
-      try {
-        // Gather dependencies for this system
-        const deps = this._getDependencies(system.dependencies);
-
-        // Run system update
-        system.update(this.world, deps, deltaTime);
-      } catch (error) {
-        console.error(`Runtime system '${system.name}' failed:`, error);
-        // Continue with other systems rather than crashing
-      }
+    if (this._accumulator + 1e-10 >= this.fixedTimeStep) {
+      const dropped = Math.floor((this._accumulator + 1e-10) / this.fixedTimeStep) * this.fixedTimeStep;
+      this._diagnostics.droppedSeconds += dropped;
+      this._accumulator = Math.max(0, this._accumulator - dropped);
     }
-
-    // After all systems have run, perform the final render
-    this.render();
+    this._runSystems("frame", frameDelta);
+    if (this.disposed) return;
+    try { this.render(frameDelta); }
+    catch (error) { this._reportError("render", "renderer", error); this.stop(); throw error; }
+    this._diagnostics.frames++;
   }
 
-  /**
-   * Performs the final render of the scene.
-   * @private
-   * @internal
-   */
-  render() {
+  _runSystems(phase, deltaTime) {
+    for (const system of this.runtimeSystems) {
+      if (this.disposed) return;
+      if (system.phase !== phase || system.disabled) continue;
+      try { system.update(this.world, this._getDependencies(system.dependencies), deltaTime, this); }
+      catch (error) {
+        const failure = new Error(`Runtime system '${system.name}' failed: ${error.message}`, { cause: error });
+        this._reportError(phase, system.name, failure);
+        if (this.gameConfig.errorMode === "continue") system.disabled = true;
+        else { this.stop(); throw failure; }
+      }
+    }
+  }
+
+  render(dt = 0) {
+    if (this.options.coreSystems === false && !this._hasResource("renderer")) return;
     const renderer = this.getResource("renderer");
     const camera = this.getResource("camera");
-    if (renderer && camera) {
-      renderer.renderer.render(renderer.scene, camera.camera);
-    }
+    if (renderer.pipeline) renderer.pipeline.render(renderer.scene, camera.camera, dt);
+    else renderer.renderer.render(renderer.scene, camera.camera);
   }
 
-  /**
-   * Retrieves an initialized shared resource instance by name.
-   * This is the primary way for systems or external game logic to access shared engine services like the renderer, physics world, or input manager.
-   *
-   * @param {string} name - The name of the resource to retrieve (e.g., 'renderer', 'physics', 'eventBus').
-   * @returns {object} The resource instance.
-   * @throws {Error} If the resource is not found or has not been initialized yet.
-   *
-   * @example
-   * const physicsWorld = engine.getResource("physics").world;
-   * const scene = engine.getResource("renderer").scene;
-   */
+  _hasResource(name) { return this.resources.get(name)?.instance != null; }
+
   getResource(name) {
-    const resource = this.resources.get(name);
-    if (!resource || !resource.instance) {
-      throw new Error(`Resource '${name}' not available`);
-    }
-    return resource.instance;
+    if (!this._hasResource(name)) throw new Error(`Resource '${name}' not available. Register it or declare it as a setup dependency.`);
+    return this.resources.get(name).instance;
   }
 
-  /**
-   * Returns the central Miniplex ECS world instance.
-   * @returns {World} The ECS world.
-   */
-  getWorld() {
-    return this.world;
-  }
+  getWorld() { return this.world; }
+  isInitialized() { return this.initialized; }
 
-  /**
-   * Check if the system manager is initialized
-   * @returns {boolean}
-   */
-  isInitialized() {
-    return this.initialized;
-  }
-
-  /**
-   * Manually adds a resource to the engine.
-   * This is typically used by setup systems to register new resources that other systems can then depend on.
-   * For example, a `terrainSetup` system could generate a terrain data map and register it as a 'terrain' resource.
-   *
-   * @param {string} name - The name of the resource.
-   * @param {object} instance - The resource instance to add.
-   * @throws {Error} If a resource with the same name already exists.
-   *
-   * @example
-   * // Inside a setup system's init function:
-   * init: (world, deps, config, engine) => {
-   *   const terrainData = generateTerrain();
-   *   engine.addResource("terrain", terrainData);
-   * }
-   *
-   * // Another system can now depend on it:
-   * engine.registerSystem("terrain-logic", {
-   *   dependencies: ["terrain"],
-   *   update: (world, { terrain }) => {
-   *     // access terrain data
-   *   }
-   * });
-   */
   addResource(name, instance) {
-    if (this.resources.has(name) && this.resources.get(name).instance) {
-      // Allow overriding the placeholder set in _registerCoreSystems
-      if (name !== "eventBus") {
-        throw new Error(`Resource '${name}' already exists.`);
+    if (this.disposed) throw new Error("Cannot add a resource to a disposed engine.");
+    if (this._hasResource(name)) throw new Error(`Resource '${name}' already exists.`);
+    if (instance == null) throw new Error(`Resource '${name}' must have a value.`);
+    this.resources.set(name, { factory: null, dependencies: [], instance });
+    this._resourceOrder.push(name);
+    return this;
+  }
+
+  /** Release browser listeners, GPU/physics resources and the ECS world once. */
+  dispose() {
+    if (this.disposed) return;
+    this.stop();
+    this.disposed = true;
+    this.initialized = false;
+    const released = new Set();
+    for (const name of [...this._resourceOrder].reverse()) {
+      const instance = this.resources.get(name)?.instance;
+      if (instance && instance !== this && !released.has(instance)) {
+        released.add(instance);
+        try { instance.dispose?.(released); }
+        catch (error) { this._reportError("dispose", name, error); }
       }
     }
-    this.resources.set(name, { factory: null, instance });
+    for (const entity of [...this.world]) this.world.remove(entity);
+    this.resources.clear();
+    this._resourceOrder.length = 0;
+    this.setupSystems.length = 0;
+    this.runtimeSystems.length = 0;
+    this.eventListeners.clear();
   }
 
-  /**
-   * Registers the engine's built-in resources and runtime systems.
-   * @private
-   * @internal
-   */
+  /** Records remain readable after disposal; errors are bounded to the last 100. */
+  getDiagnostics() {
+    const scene = this.resources.get("sceneLifecycle")?.instance;
+    const physics = this.resources.get("physics")?.instance;
+    const renderer = this.resources.get("renderer")?.instance?.renderer;
+    return {
+      ...this._diagnostics, errors: this._diagnostics.errors.map((error) => ({ ...error })),
+      initialized: this.initialized, running: this.running, disposed: this.disposed,
+      entities: this.world.entities.length, queries: this.world.queries.size,
+      resources: {
+        meshes: scene?.meshes.size ?? 0,
+        bodies: scene?.bodies.size ?? 0,
+        controllers: scene ? [...scene.bodies.keys()].filter(body => body.controller).length : 0,
+        physicsBodies: physics?.world.bodies?.len() ?? null,
+        physicsColliders: physics?.world.colliders?.len() ?? null,
+      },
+      rendererMemory: renderer?.info?.memory ? { ...renderer.info.memory } : null,
+    };
+  }
+
+  _reportError(phase, system, error) {
+    const diagnostic = { phase, system, message: error?.message ?? String(error), stack: error?.stack ?? null };
+    this._diagnostics.errorCount++;
+    this._diagnostics.errors.push(diagnostic);
+    if (this._diagnostics.errors.length > 100) this._diagnostics.errors.shift();
+    console.error(`[Roseblox ${phase}: ${system}]`, error);
+    try { this.gameConfig?.onError?.(diagnostic); }
+    catch (callbackError) { console.error("Roseblox onError callback failed:", callbackError); }
+    if (phase !== "event") this.emit("engine-error", diagnostic);
+  }
+
+  on(eventName, callback) {
+    if (this.disposed) throw new Error("Cannot subscribe to a disposed engine.");
+    if (!this.eventListeners.has(eventName)) this.eventListeners.set(eventName, new Set());
+    this.eventListeners.get(eventName).add(callback);
+    return () => this.off(eventName, callback);
+  }
+
+  off(eventName, callback) { this.eventListeners.get(eventName)?.delete(callback); }
+
+  emit(eventName, data) {
+    for (const callback of [...(this.eventListeners.get(eventName) ?? [])]) {
+      try { callback(data); }
+      catch (error) { this._reportError("event", eventName, error); }
+    }
+  }
+
+  _getDependencies(names) { return Object.fromEntries(names.map((name) => [name, this.getResource(name)])); }
+
   _registerCoreSystems() {
     // === REGISTER CORE RESOURCES ===
     // These are the foundational services of the engine.
-    this.addResource("eventBus", this);
-
     this.registerResource(
       "renderer",
       async (config) => await setupRenderer(config)
@@ -420,8 +374,19 @@ export class GameSystems {
       async (config) => await setupAssetManager(config)
     );
 
+    this.registerResource("sceneLifecycle", (_config, dependencies) =>
+      setupSceneManagement(this.world, dependencies),
+      { dependencies: ["renderer", "physics", "assets"] }
+    );
+
     // === CORE SETUP SYSTEMS (Run Once During Init) ===
+    this.registerResource("triggerLifecycle", (_config, { eventBus }) =>
+      setupTriggerDetection(this.world, eventBus), { dependencies: ["eventBus"] });
+    this.registerResource("collisionLifecycle", (_config, { physics }) =>
+      setupCollisionTracking(physics), { dependencies: ["physics"] });
+
     this.registerSetup("lighting", {
+      provides: ["lighting"],
       dependencies: ["renderer"],
       init: async (world, dependencies, config) => {
         const lightingResources = await setupLighting(
@@ -443,6 +408,7 @@ export class GameSystems {
     // so those are NOT registered here.
 
     this.registerSetup("camera", {
+      provides: ["camera"],
       dependencies: ["renderer"],
       init: async (world, dependencies, config) => {
         const cameraResources = await setupCamera(world, dependencies, config);
@@ -465,9 +431,16 @@ export class GameSystems {
     this.registerSystem("pointerLock", {
       dependencies: ["camera", "input"],
       update: (world, { camera, input }, deltaTime) => {
-        pointerLockSystem(camera.controls, input, this.gameConfig);
+        if (camera.shouldUpdatePointerLock?.() !== false) pointerLockSystem(camera.controls, input, this.gameConfig);
       },
       priority: 21, // Run after camera input
+    });
+
+    // Factories also support entities spawned after initialization.
+    this.registerSystem("physicsBodyCreation", {
+      dependencies: ["physics"],
+      update: physicsBodySetupSystem,
+      priority: 32,
     });
 
     // Game-specific playerMovementSystem runs at priority 30
@@ -481,8 +454,8 @@ export class GameSystems {
 
     this.registerSystem("physicsStep", {
       dependencies: ["physics"],
-      update: (world, { physics }) =>
-        stepPhysics(physics.world, physics.eventQueue),
+      update: (world, { physics }, deltaTime) =>
+        stepPhysics(physics.world, physics.eventQueue, deltaTime),
       priority: 40,
     });
 
@@ -502,7 +475,7 @@ export class GameSystems {
     this.registerSystem("triggerDetection", {
       dependencies: ["eventBus"],
       update: (world, { eventBus }) => triggerDetectionSystem(world, eventBus),
-      priority: 43, // Run after physics but before rendering
+      priority: 46, // Use transforms synchronized from the current physics step
     });
 
     this.registerSystem("physicsStateSync", {
@@ -513,6 +486,7 @@ export class GameSystems {
     });
 
     this.registerSystem("sceneManagement", {
+      phase: "frame",
       dependencies: ["assets", "renderer", "physics"],
       update: (world, dependencies) =>
         sceneManagementSystem(world, dependencies),
@@ -520,11 +494,13 @@ export class GameSystems {
     });
 
     this.registerSystem("animationSetup", {
+      phase: "frame",
       update: (world, _) => animationSetupSystem(world),
       priority: 52,
     });
 
     this.registerSystem("animation", {
+      phase: "frame",
       update: (world, deps, deltaTime) => animationSystem(world, deltaTime),
       priority: 55,
     });
@@ -535,11 +511,13 @@ export class GameSystems {
     });
 
     this.registerSystem("transformSync", {
-      update: (world) => transformSyncSystem(world),
+      phase: "frame",
+      update: (world) => transformSyncSystem(world, this.interpolationAlpha),
       priority: 65,
     });
 
     this.registerSystem("camera-collision", {
+      phase: "frame",
       dependencies: ["camera"],
       update: (world, { camera }) =>
         physicsCameraCollisionSystem(world, camera),
@@ -547,107 +525,13 @@ export class GameSystems {
     });
 
     this.registerSystem("cameraUpdate", {
+      phase: "frame",
       dependencies: ["camera"],
       update: (world, { camera }, deltaTime) =>
-        cameraUpdateSystem(world, camera.controls, deltaTime),
+        camera.shouldUpdateControls?.() !== false &&
+        cameraUpdateSystem(world, camera.controls, deltaTime, this.interpolationAlpha),
       priority: 75,
     });
   }
 
-  /**
-   * Subscribes to an engine event.
-   * The event bus is used for decoupled communication between systems. The engine instance itself serves as the main event bus.
-   * For example, the collision system emits 'collision-enter' events,
-   * and game logic can listen for these events without having a direct reference to the collision system.
-   *
-   * @param {string} eventName - The name of the event to listen for (e.g., 'collision-enter', 'score-updated').
-   * @param {function(any): void} callback - The function to call when the event is emitted. It will receive the event data as its only argument.
-   *
-   * @example
-   * engine.on("player-death", (eventData) => {
-   *   console.log(`Player died because: ${eventData.reason}`);
-   *   // Show game over screen
-   * });
-   */
-  on(eventName, callback) {
-    if (!this.eventListeners.has(eventName)) {
-      this.eventListeners.set(eventName, []);
-    }
-    this.eventListeners.get(eventName).push(callback);
-  }
-
-  /**
-   * Unsubscribes from an engine event.
-   * It is good practice to unsubscribe listeners when they are no longer needed to prevent memory leaks,
-   * for example, when a UI element that was listening for an event is destroyed.
-   *
-   * @param {string} eventName - The name of the event.
-   * @param {function(any): void} callback - The specific callback function instance to remove.
-   *
-   * @example
-   * const handleResize = () => { /.../ };
-   * engine.on('resize', handleResize);
-   * // later...
-   * engine.off('resize', handleResize);
-   */
-  off(eventName, callback) {
-    if (this.eventListeners.has(eventName)) {
-      const listeners = this.eventListeners.get(eventName);
-      const index = listeners.indexOf(callback);
-      if (index > -1) {
-        listeners.splice(index, 1);
-      }
-    }
-  }
-
-  /**
-   * Emits an engine event, calling all subscribed listeners with the provided data.
-   *
-   * @param {string} eventName - The name of the event to emit.
-   * @param {any} [data] - The data payload to pass to the event listeners. This can be any type of data (object, string, number, etc.).
-   *
-   * @example
-   * // Inside a system that has 'eventBus' as a dependency:
-   * engine.registerSystem("scoring", {
-   *   dependencies: ["eventBus"],
-   *   update: (world, { eventBus }, deltaTime) => {
-   *     world.with("isPlayer", "score").forEach(player => {
-   *       player.score.value += 10;
-   *       eventBus.emit("score-updated", { newScore: player.score.value });
-   *     });
-   *   }
-   * });
-   */
-  emit(eventName, data) {
-    if (this.eventListeners.has(eventName)) {
-      // Create a copy of the listeners array in case a listener modifies the original array (e.g., by unsubscribing)
-      const listeners = [...this.eventListeners.get(eventName)];
-      for (const listener of listeners) {
-        try {
-          listener(data);
-        } catch (error) {
-          console.error(`Error in event listener for '${eventName}':`, error);
-        }
-      }
-    }
-  }
-
-  /**
-   * Get dependency objects for a system
-   * @private
-   * @internal
-   */
-  _getDependencies(dependencyNames) {
-    const deps = {};
-
-    for (const name of dependencyNames) {
-      const resource = this.resources.get(name);
-      if (!resource || !resource.instance) {
-        throw new Error(`Resource '${name}' not available`);
-      }
-      deps[name] = resource.instance;
-    }
-
-    return deps;
-  }
 }

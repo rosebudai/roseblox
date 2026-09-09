@@ -1,3 +1,5 @@
+import { getPresentationTransform } from "../presentationTransform.js";
+
 /**
  * Transform Sync System
  *
@@ -11,15 +13,15 @@
  * Transform sync system - copies ECS transform data to visual containers
  * @param {World} world - ECS world instance
  */
-export function transformSyncSystem(world) {
-  const query = world
-    .with("renderable", "transform")
-    .where((e) => e.renderable.mesh);
+export function transformSyncSystem(world, alpha = 1) {
+  const query = world.with("renderable", "transform");
 
   for (const entity of query) {
+    if (!entity.renderable.mesh) continue;
     // SYNC: ECS Transform → Visual Container (simple, clean)
     // Container moves, children automatically follow with their offsets
-    entity.renderable.mesh.position.copy(entity.transform.position);
-    entity.renderable.mesh.quaternion.copy(entity.transform.rotation);
+    const pose = getPresentationTransform(entity, alpha);
+    entity.renderable.mesh.position.copy(pose.position);
+    entity.renderable.mesh.quaternion.copy(pose.rotation);
   }
 }

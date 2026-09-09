@@ -1,0 +1,420 @@
+{
+  "version": 1,
+  "description": "Frozen functional replays for generated games. Visible gameplay criteria remain ungraded until screenshots are reviewed. A completed LLM operation is not a playable-game pass.",
+  "cases": [
+    {
+      "id": "coin-course",
+      "canvasSelector": "#game-canvas",
+      "readySelector": "#start",
+      "settleMs": 1000,
+      "prompt": "Build a polished third-person 3D coin-collecting game. Make a straight, wide green track with blue sky, shadows and a visible player. Start the player at (0, 1, 0), looking down negative Z. WASD moves at 4 units/second; W moves toward negative Z. Space jumps. Put three large golden collectible coins on the center line at Z=-4, -8 and -12, reachable by walking forward. The player must physically touch each coin to collect it; remove the coin and increase the score once. End the game after all three coins with visible text 'You won'. Use a canvas with id game-canvas. Include a visible Start button with id start that starts play without moving the player, a visible score HUD with id score containing exactly 'Score: 0' initially and one numeric score thereafter, and a visible status element with id status. Drive the score and win display from actual gameplay. Include concise visible controls. Do not add hidden benchmark state, automatic coin collection, or simulated success events.",
+      "steps": [
+        {
+          "action": "click",
+          "selector": "#start"
+        },
+        {
+          "action": "hold",
+          "key": "w",
+          "ms": 1250
+        },
+        {
+          "action": "checkpoint",
+          "id": "moving"
+        },
+        {
+          "action": "hold",
+          "key": "w",
+          "ms": 2400
+        },
+        {
+          "action": "wait",
+          "ms": 300
+        },
+        {
+          "action": "checkpoint",
+          "id": "collected"
+        }
+      ],
+      "assertions": [
+        {
+          "id": "score.initial",
+          "description": "The initial visible score is zero.",
+          "at": "loaded",
+          "selector": "#score",
+          "type": "number",
+          "equals": 0
+        },
+        {
+          "id": "score.input-progress",
+          "description": "Forward input is followed by a visible score increase.",
+          "at": "moving",
+          "from": "loaded",
+          "selector": "#score",
+          "type": "number-delta",
+          "min": 1
+        },
+        {
+          "id": "score.complete",
+          "description": "The three-coin replay ends with exactly three collected coins.",
+          "at": "collected",
+          "selector": "#score",
+          "type": "number",
+          "equals": 3
+        },
+        {
+          "id": "win.visible",
+          "description": "The requested win message appears after the course.",
+          "at": "collected",
+          "selector": "body",
+          "type": "visible-text",
+          "matches": "You won",
+          "flags": "i"
+        }
+      ],
+      "reviewCriteria": [
+        {
+          "id": "visual.3d-scene",
+          "description": "Screenshots show an actual 3D player, track and golden coins with readable controls/HUD; the canvas is not blank or a static placeholder."
+        },
+        {
+          "id": "visual.player-movement",
+          "description": "Compare loaded, moving and collected images: the player advances relative to track landmarks, reached coins disappear, and screenshots support the HUD progression. Animated scenery or HUD changes alone do not establish this criterion."
+        }
+      ],
+      "stages": [
+        {
+          "id": "create",
+          "kind": "oneshot",
+          "expectedModel": "sol"
+        },
+        {
+          "id": "restart-edit",
+          "kind": "edit",
+          "expectedModel": "luna",
+          "prompt": "Add a visible Restart button with id restart. Clicking it after winning must reset the same game in place: restore all three coins, reset the score to zero, clear the win state and put the player back at the original start, already ready to move. Preserve the existing world layout, WASD movement, score HUD, Start button and three-coin win condition. Do not reload the page or simulate progress.",
+          "steps": [
+            {
+              "action": "click",
+              "selector": "#restart"
+            },
+            {
+              "action": "wait",
+              "ms": 300
+            },
+            {
+              "action": "checkpoint",
+              "id": "restarted"
+            },
+            {
+              "action": "hold",
+              "key": "w",
+              "ms": 3650
+            },
+            {
+              "action": "wait",
+              "ms": 300
+            },
+            {
+              "action": "checkpoint",
+              "id": "won-again"
+            }
+          ],
+          "assertions": [
+            {
+              "id": "restart.score-reset",
+              "at": "restarted",
+              "selector": "#score",
+              "type": "number",
+              "equals": 0
+            },
+            {
+              "id": "restart.score-complete",
+              "at": "won-again",
+              "selector": "#score",
+              "type": "number",
+              "equals": 3
+            },
+            {
+              "id": "restart.win-again",
+              "at": "won-again",
+              "selector": "body",
+              "type": "visible-text",
+              "matches": "You won",
+              "flags": "i"
+            }
+          ],
+          "reviewCriteria": [
+            {
+              "id": "visual.restart",
+              "description": "The restarted image shows the player back at the start and all three coins restored; won-again shows actual collection again. Existing 3D controls and visual quality remain intact."
+            }
+          ]
+        },
+        {
+          "id": "night-edit",
+          "extends": "restart-edit",
+          "kind": "edit",
+          "expectedModel": "luna",
+          "prompt": "Turn the existing game into a night course with a dark blue sky, soft moonlight, luminous golden coins, and small lights along the track. Keep the player and route clearly visible and the game attractive. Add a visible heading with id course-title containing 'Night course'. Preserve the existing course geometry, movement speed, coin collision/score logic, three-coin win condition and working Restart button. The lighting changes must not alter the controls or gameplay.",
+          "assertions": [
+            {
+              "id": "night.title",
+              "at": "loaded",
+              "selector": "#course-title",
+              "type": "text",
+              "matches": "Night course",
+              "flags": "i"
+            }
+          ],
+          "reviewCriteria": [
+            {
+              "id": "visual.night-lighting",
+              "description": "Screenshots show the requested dark blue sky, moonlight, luminous gold coins and small track lights while the player and route remain readable. The existing movement, scoring and restart evidence remains intact."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "target-gallery",
+      "canvasSelector": "#game-canvas",
+      "readySelector": "#start",
+      "settleMs": 1000,
+      "prompt": "Build a polished first-person 3D target gallery in a spacious lit room. The player stands still, looks with the mouse, aims with a centered crosshair, and fires with a click using actual ray/object intersection. Put a large red target directly in the initial line of sight, clearly visible. There are three targets total, displayed one at a time at the same center position. A hit removes the current target and spawns the next after at most 150 milliseconds; a miss does not increase the score. After three hits show 'You won'. Use a canvas with id game-canvas, a visible Start button with id start that begins play/locks the pointer without firing, a visible score HUD with id score containing exactly 'Hits: 0' initially and one numeric hit count thereafter, and visible status text with id status. Include visible controls. Keep score and win state driven by real hits. Do not add hidden benchmark state, automatic hits, or simulated success events.",
+      "steps": [
+        {
+          "action": "click",
+          "selector": "#start"
+        },
+        {
+          "action": "click",
+          "selector": "#game-canvas"
+        },
+        {
+          "action": "wait",
+          "ms": 250
+        },
+        {
+          "action": "checkpoint",
+          "id": "first-hit"
+        },
+        {
+          "action": "click",
+          "selector": "#game-canvas"
+        },
+        {
+          "action": "wait",
+          "ms": 250
+        },
+        {
+          "action": "click",
+          "selector": "#game-canvas"
+        },
+        {
+          "action": "wait",
+          "ms": 250
+        },
+        {
+          "action": "checkpoint",
+          "id": "third-hit"
+        }
+      ],
+      "assertions": [
+        {
+          "id": "score.initial",
+          "at": "loaded",
+          "selector": "#score",
+          "type": "number",
+          "equals": 0
+        },
+        {
+          "id": "score.input-progress",
+          "at": "first-hit",
+          "from": "loaded",
+          "selector": "#score",
+          "type": "number-delta",
+          "equals": 1
+        },
+        {
+          "id": "score.third-hit",
+          "at": "third-hit",
+          "selector": "#score",
+          "type": "number",
+          "equals": 3
+        }
+      ],
+      "reviewCriteria": [
+        {
+          "id": "visual.3d-scene",
+          "description": "Screenshots show a coherent actual 3D room, a visible red target and centered crosshair with readable controls/HUD; the canvas is not blank or a static placeholder."
+        },
+        {
+          "id": "visual.target-progression",
+          "description": "Screenshots around hits and win support real target removal/progression. A score counter incrementing on every click without ray/object interaction must fail. If screenshots cannot establish the hit mechanism, leave this ungraded and inspect the generated source or perform an additional miss replay before deciding."
+        }
+      ],
+      "stages": [
+        {
+          "id": "create",
+          "kind": "oneshot",
+          "expectedModel": "sol",
+          "assertions": [
+            {
+              "id": "win.visible",
+              "at": "third-hit",
+              "selector": "body",
+              "type": "visible-text",
+              "matches": "You won",
+              "flags": "i"
+            }
+          ]
+        },
+        {
+          "id": "five-target-edit",
+          "kind": "edit",
+          "expectedModel": "luna",
+          "prompt": "Change the gallery to five targets total. Preserve the existing real ray/object hit detection, controls, initial aim, one-at-a-time target placement and HUD IDs. The player must now score five actual hits to win. Update the visible instructions for the new target count.",
+          "steps": [
+            {
+              "action": "click",
+              "selector": "#game-canvas"
+            },
+            {
+              "action": "wait",
+              "ms": 250
+            },
+            {
+              "action": "click",
+              "selector": "#game-canvas"
+            },
+            {
+              "action": "wait",
+              "ms": 250
+            },
+            {
+              "action": "checkpoint",
+              "id": "fifth-hit"
+            }
+          ],
+          "assertions": [
+            {
+              "id": "score.five-hits",
+              "at": "fifth-hit",
+              "selector": "#score",
+              "type": "number",
+              "equals": 5
+            },
+            {
+              "id": "win.visible",
+              "at": "fifth-hit",
+              "selector": "body",
+              "type": "visible-text",
+              "matches": "You won",
+              "flags": "i"
+            }
+          ]
+        },
+        {
+          "id": "restart-gallery-edit",
+          "extends": "five-target-edit",
+          "kind": "edit",
+          "expectedModel": "luna",
+          "prompt": "Add a visible Restart button with id restart that can be clicked after winning. It must reset the same five-target gallery in place: score zero, initial aim restored, first red target visible, win state cleared, ready to fire again. Preserve the five-target win condition and actual ray/object hit detection. Make the restart button usable even if the game uses pointer lock. Do not reload the page or simulate target hits.",
+          "steps": [
+            {
+              "action": "press",
+              "key": "Escape"
+            },
+            {
+              "action": "click",
+              "selector": "#restart"
+            },
+            {
+              "action": "wait",
+              "ms": 250
+            },
+            {
+              "action": "checkpoint",
+              "id": "restarted"
+            },
+            {
+              "action": "click",
+              "selector": "#game-canvas"
+            },
+            {
+              "action": "wait",
+              "ms": 250
+            },
+            {
+              "action": "click",
+              "selector": "#game-canvas"
+            },
+            {
+              "action": "wait",
+              "ms": 250
+            },
+            {
+              "action": "click",
+              "selector": "#game-canvas"
+            },
+            {
+              "action": "wait",
+              "ms": 250
+            },
+            {
+              "action": "click",
+              "selector": "#game-canvas"
+            },
+            {
+              "action": "wait",
+              "ms": 250
+            },
+            {
+              "action": "click",
+              "selector": "#game-canvas"
+            },
+            {
+              "action": "wait",
+              "ms": 250
+            },
+            {
+              "action": "checkpoint",
+              "id": "won-again"
+            }
+          ],
+          "assertions": [
+            {
+              "id": "restart.score-reset",
+              "at": "restarted",
+              "selector": "#score",
+              "type": "number",
+              "equals": 0
+            },
+            {
+              "id": "restart.five-hits",
+              "at": "won-again",
+              "selector": "#score",
+              "type": "number",
+              "equals": 5
+            },
+            {
+              "id": "restart.win-again",
+              "at": "won-again",
+              "selector": "body",
+              "type": "visible-text",
+              "matches": "You won",
+              "flags": "i"
+            }
+          ],
+          "reviewCriteria": [
+            {
+              "id": "visual.restart",
+              "description": "The restart image shows the gallery restored, initial aim and first target visible; won-again shows completion of the restored five-target gallery. Core visuals and aiming remain intact."
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
