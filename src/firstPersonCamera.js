@@ -86,13 +86,14 @@ export function createFirstPersonCamera({ entity, camera, controls, canvas, inpu
     start() {
       if (disposed) throw new Error("This first-person camera is disposed. Create a new controller.");
       if (!world.has(entity)) throw new Error("The first-person entity is no longer in this game.");
-      yaw = options.yaw;
-      pitch = clampPitch(options.pitch);
-      if (active() && controller.locked) {
-        input.reset();
-        controller.update();
+      // Resume and repeated starts retain aim, held input and pending capture.
+      // Only a stopped round starts again from its configured orientation.
+      if (enabled) {
+        mouse.start();
         return;
       }
+      yaw = options.yaw;
+      pitch = clampPitch(options.pitch);
       mouse.cancel();
       enabled = true;
       playing = false;

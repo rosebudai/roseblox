@@ -829,6 +829,67 @@ test("firstPerson denial stays playable through fallback and late lock cannot re
   assert.equal(game.controls.enabled, true);
 });
 
+test("firstPerson repeated start and explicit resume preserve aim; stop starts a new round", async t => {
+  const game = await headlessGame(t), player = game.addPlayer();
+  const pointer = pointerFixture(game), fps = game.firstPerson(player, { yaw: .3, pitch: -.2 });
+  const initial = game.camera.quaternion.clone();
+  fps.start(); await Promise.resolve();
+  pointer.move(260, -90);
+  const aim = game.camera.quaternion.clone();
+  game.input.setAction("forward", true);
+  fps.start();
+  assert.ok(game.camera.quaternion.angleTo(aim) < 1e-7, "an already playing controller must not snap to spawn aim");
+  assert.equal(pointer.requests(), 1, "repeated start retains the existing capture");
+  assert.equal(game.input.isActionActive("forward"), true, "repeated start does not interrupt held movement");
+  pointer.document.dispatchEvent(Object.assign(new Event("keydown"), { code: "Escape" }));
+  fps.start(); await Promise.resolve();
+  assert.ok(game.camera.quaternion.angleTo(aim) < 1e-7, "explicit resume preserves aim just like a canvas click");
+  assert.equal(pointer.requests(), 2);
+  fps.stop(); fps.start(); await Promise.resolve();
+  assert.ok(game.camera.quaternion.angleTo(initial) < 1e-7, "stop followed by start resets a new round to configured aim");
+});
+
+test("firstPerson start does not cancel pending capture or reset fallback aim", async t => {
+  const game = await headlessGame(t), player = game.addPlayer();
+  const pointer = pointerFixture(game), fps = game.firstPerson(player);
+  let requests = 0, reject;
+  pointer.canvas.requestPointerLock = () => { requests++; return new Promise((_, no) => { reject = no; }); };
+  fps.start(); fps.start();
+  assert.equal(requests, 1, "repeated start shares the pending capture request");
+  reject(new Error("denied fixture")); await Promise.resolve(); await Promise.resolve();
+  assert.equal(fps.active, true); assert.equal(fps.locked, false);
+  // EventTarget has no bubbling; dispatch a canvas-targeted move to the document.
+  for (const [clientX, clientY] of [[300, 300], [500, 230]]) {
+    const event = Object.assign(new Event("mousemove"), { clientX, clientY });
+    Object.defineProperty(event, "target", { value: pointer.canvas });
+    pointer.document.dispatchEvent(event);
+  }
+  const aim = game.camera.quaternion.clone();
+  assert.ok(aim.angleTo(new THREE.Quaternion()) > .2);
+  fps.start();
+  assert.ok(game.camera.quaternion.angleTo(aim) < 1e-7, "fallback start preserves the current look direction");
+  assert.equal(fps.active, true); assert.equal(requests, 1);
+});
+
+test("firstPerson yaw stays continuous across repeated turns and both pitch limits", async t => {
+  const game = await headlessGame(t), player = game.addPlayer();
+  const pointer = pointerFixture(game), sensitivity = .0023;
+  const fps = game.firstPerson(player, { sensitivity }); fps.start(); await Promise.resolve();
+  for (const pitchMove of [0, -1000, 2000]) {
+    pointer.move(0, pitchMove);
+    let before = game.camera.quaternion.clone();
+    for (let turn = 0; turn < 400; turn++) {
+      pointer.move(40, 0); game.engine.update(0);
+      const after = game.camera.quaternion.clone();
+      assert.ok(Math.abs(before.angleTo(after) - 40 * sensitivity) < 1e-6, "crossing yaw wrap or high pitch cannot cause a discontinuous turn");
+      assert.ok(after.toArray().every(Number.isFinite));
+      before = after;
+    }
+    const direction = game.camera.getWorldDirection(new THREE.Vector3());
+    assert.ok(Math.hypot(direction.x, direction.z) >= Math.sin(.05) - 1e-7, "pitch never reaches the singularity");
+  }
+});
+
 test("firstPerson restores hidden roots and controls across follow/manual/replacement ownership and disposal", async t => {
   const game = await headlessGame(t), player = game.addPlayer({ position: [0, 5, 0] });
   const pointer = pointerFixture(game);
