@@ -4,6 +4,7 @@ const up = new THREE.Vector3(0, 1, 0);
 const approach = (value, target, amount) => value + Math.sign(target - value) * Math.min(Math.abs(target - value), amount);
 
 export function arcadeVehicleOptions(config) {
+  if (config.onReset !== undefined && typeof config.onReset !== "function") throw new Error("Vehicle onReset must be a function.");
   const values = { maxSpeed: 32, reverseSpeed: 10, acceleration: 16, braking: 28, coast: 2, steerRate: 1.8, grip: 9, driftGrip: 1.8, cameraDistance: 7, cameraHeight: 3.5, lookAhead: 4, heading: 0 };
   for (const name of Object.keys(values)) {
     values[name] = config[name] ?? values[name];
@@ -109,7 +110,9 @@ export function createArcadeVehicle({ entry, config, size, input, castRay, castS
   listen(canvas?.ownerDocument.defaultView, "keydown", event => {
     // setupInput has already applied its focus/editable-element checks. Ignore
     // key repeat so holding R cannot keep teleporting the chassis.
-    if (active && event.code === "KeyR" && !event.repeat && input?.isKeyDown("KeyR")) controller.reset();
+    if (active && event.code === "KeyR" && !event.repeat && input?.isKeyDown("KeyR")) {
+      if (config.onReset) config.onReset(); else controller.reset();
+    }
     if (active && event.code === "Escape" && input?.isKeyDown("Escape")) pause();
   });
   listen(canvas, "blur", pause);

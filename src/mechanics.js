@@ -4,6 +4,8 @@ import { setupInput } from "./resources/inputSetup.js";
 import { createFirstPersonCamera, firstPersonOptions } from "./firstPersonCamera.js";
 import { moveCharacter, createCapsuleController, capsuleSpawnClearance } from "./characterMotor.js";
 import { arcadeVehicleOptions, createArcadeVehicle } from "./arcadeVehicle.js";
+import { thirdPersonOptions, createThirdPersonCamera } from "./thirdPersonCamera.js";
+import { staticMeshShape } from "./staticMesh.js";
 
 const cameraOwners = new WeakMap(), canvasOwners = new WeakMap(), visualOwners = new WeakMap();
 const up = new THREE.Vector3(0, 1, 0);
@@ -31,8 +33,13 @@ export async function createMechanics(options = {}) {
   const maxSubSteps = positive(options.maxSubSteps ?? 8, "maxSubSteps");
   if (!Number.isInteger(maxSubSteps)) throw new Error("maxSubSteps must be an integer.");
   const maxFrameDelta = positive(options.maxFrameDelta ?? 0.25, "maxFrameDelta");
+  const maxCcdSubsteps = positive(options.maxCcdSubsteps ?? 4, "maxCcdSubsteps");
+  if (!Number.isInteger(maxCcdSubsteps)) throw new Error("maxCcdSubsteps must be an integer.");
   const physics = await setupPhysics({ gravity: vector(options.gravity, [0, -9.81, 0]) });
   const { RAPIER, world, eventQueue } = physics;
+  // A single CCD pass discards remaining travel at mesh-road contacts, causing
+  // visible slowdown despite a high reported chassis speed. Work stays bounded.
+  world.integrationParameters.maxCcdSubsteps = maxCcdSubsteps;
   const entries = new Map(), colliders = new Map(), contacts = new Map(), listeners = new Set(), changedColliders = new Set();
   let nextId = 1, accumulator = 0, disposed = false, paused = false, advancing = false;
   const diagnostics = { frames: 0, fixedSteps: 0, simulatedSeconds: 0, droppedSeconds: 0 };
@@ -82,7 +89,7 @@ export async function createMechanics(options = {}) {
     const entry = entries.get(handle);
     if (!entry) return;
     entries.delete(handle); colliders.delete(entry.collider.handle); changedColliders.delete(entry.collider);
-    entry.fps?.dispose(); entry.vehicle?.dispose(); entry.input?.dispose();
+    entry.fps?.dispose(); entry.third?.dispose(); entry.vehicle?.dispose(); entry.input?.dispose();
     for (const object of entry.bindings) if (visualOwners.get(object) === entry) visualOwners.delete(object);
     entry.bindings.clear();
     for (const [key, pair] of [...contacts]) {
@@ -94,20 +101,22 @@ export async function createMechanics(options = {}) {
       world.removeRigidBody(entry.body);
     }
   }
-  function addBody(config = {}) {
+  function addBody(config = {}, meshDescriptor) {
     live();
     const type = config.type ?? "fixed", shape = config.shape ?? { type: "box", size: [1, 1, 1] };
     const position = vector(config.position), quaternion = rotation(config.quaternion);
     const factory = { fixed: "fixed", dynamic: "dynamic", kinematic: "kinematicPositionBased" }[type];
     if (!factory) throw new Error("Body type must be fixed, dynamic or kinematic.");
-    let descriptor;
-    if (shape.type === "box") {
-      const size = vector(shape.size, [1, 1, 1]);
-      for (const n of size.toArray()) positive(n, "Box size");
-      descriptor = RAPIER.ColliderDesc.cuboid(size.x / 2, size.y / 2, size.z / 2);
-    } else if (shape.type === "sphere") descriptor = RAPIER.ColliderDesc.ball(positive(shape.radius ?? 0.5, "radius"));
-    else if (shape.type === "capsule") descriptor = RAPIER.ColliderDesc.capsule(positive(shape.height ?? 1.1, "height", true) / 2, positive(shape.radius ?? 0.35, "radius"));
-    else throw new Error("Shape must be box, sphere or capsule.");
+    let descriptor = meshDescriptor;
+    if (!descriptor) {
+      if (shape.type === "box") {
+        const size = vector(shape.size, [1, 1, 1]);
+        for (const n of size.toArray()) positive(n, "Box size");
+        descriptor = RAPIER.ColliderDesc.cuboid(size.x / 2, size.y / 2, size.z / 2);
+      } else if (shape.type === "sphere") descriptor = RAPIER.ColliderDesc.ball(positive(shape.radius ?? 0.5, "radius"));
+      else if (shape.type === "capsule") descriptor = RAPIER.ColliderDesc.capsule(positive(shape.height ?? 1.1, "height", true) / 2, positive(shape.radius ?? 0.35, "radius"));
+      else throw new Error("Shape must be box, sphere or capsule.");
+    }
     descriptor.setFriction(positive(config.friction ?? 0.7, "friction", true))
       .setRestitution(positive(config.restitution ?? 0, "restitution", true))
       .setSensor(config.sensor ?? false).setActiveEvents(RAPIER.ActiveEvents.COLLISION_EVENTS)
@@ -148,9 +157,9 @@ export async function createMechanics(options = {}) {
         e.body.setTranslation(p, true);
         if (e.body.isKinematic()) e.body.setNextKinematicTranslation(p);
         e.body.setLinvel({ x: 0, y: 0, z: 0 }, true); e.body.setAngvel({ x: 0, y: 0, z: 0 }, true);
-        if (e.state) { e.state.verticalVelocity = 0; e.state.grounded = false; e.state.jumpHeld = false; e.velocity.set(0, 0, 0); }
+        if (e.state) { e.state.verticalVelocity = 0; e.state.grounded = false; e.state.jumpHeld = false; e.jumpRequested = false; e.velocity.set(0, 0, 0); }
         changedColliders.add(e.collider);
-        e.input?.reset(); e.vehicle?.resetMotion(); readPose(e, true); present(e, 1); e.fps?.update(); e.vehicle?.updateCamera();
+        e.input?.reset(); e.vehicle?.resetMotion(); readPose(e, true); present(e, 1); e.fps?.update(); e.third?.updateCamera(); e.vehicle?.updateCamera();
       },
       bindObject(object) { return bind(requireEntry(handle), object); },
       remove: () => remove(handle),
@@ -160,6 +169,7 @@ export async function createMechanics(options = {}) {
     return handle;
   }
   function addCharacter(config = {}) {
+    const jumpSpeed = positive(config.jumpSpeed ?? 7, "jumpSpeed", true);
     const spawnClearance = positive(config.spawnClearance ?? capsuleSpawnClearance(physics, fixedTimeStep), "spawnClearance", true);
     const position = vector(config.position, [0, 2, 0]); position.y += spawnClearance;
     const handle = addBody({ ...config, position, type: "kinematic", shape: { type: "capsule", radius: config.radius ?? 0.35, height: config.height ?? 1.1 } });
@@ -168,8 +178,43 @@ export async function createMechanics(options = {}) {
       entry.controller = createCapsuleController(physics);
       entry.state = { enabled: true, grounded: false, verticalVelocity: 0, jumpHeld: false };
       entry.velocity = vector(config.velocity); entry.spawnClearance = spawnClearance;
+      entry.jumpSpeed = jumpSpeed; entry.jumpRequested = false;
+      handle.jump = () => {
+        const e = requireEntry(handle);
+        if (!e.state.grounded || e.state.jumpHeld || e.jumpSpeed === 0) return false;
+        e.jumpRequested = true; return true;
+      };
       return handle;
     } catch (error) { remove(handle); throw error; }
+  }
+  async function addThirdPersonPlayer(config = {}) {
+    live();
+    const { camera, canvas } = config;
+    if (!camera?.isPerspectiveCamera || !canvas?.ownerDocument || (camera.parent && !camera.parent.isScene)) throw new Error("Third-person player requires a scene-root perspective camera and the host canvas.");
+    if (cameraOwners.has(camera) || canvasOwners.has(canvas)) throw new Error("Release the existing controller before claiming this camera or canvas.");
+    thirdPersonOptions(config);
+    const speed = positive(config.speed ?? 5, "speed"), runSpeed = positive(config.runSpeed ?? 8, "runSpeed");
+    const handle = addCharacter(config), entry = entries.get(handle);
+    cameraOwners.set(camera, entry); canvasOwners.set(canvas, entry);
+    const release = () => {
+      if (cameraOwners.get(camera) === entry) cameraOwners.delete(camera);
+      if (canvasOwners.get(canvas) === entry) canvasOwners.delete(canvas);
+    };
+    try {
+      entry.input = await setupInput({ canvas, inputWindow: canvas.ownerDocument.defaultView, autoFocus: false });
+      if (disposed || !entries.has(handle)) { entry.input.dispose(); throw new Error("Third-person player was removed during input initialization."); }
+      entry.speed = speed; entry.runSpeed = runSpeed; entry.camera = camera;
+      entry.third = createThirdPersonCamera({ entry, config, input: entry.input, castSegment: api.castSegment, requireLive: () => requireEntry(handle), release });
+      for (const name of ["active", "enabled", "locked"]) Object.defineProperty(handle, name, { get: () => entry.third[name] });
+      for (const name of ["start", "stop"]) handle[name] = () => entry.third[name]();
+      handle.setAction = (action, enabled) => { requireEntry(handle); entry.input.setAction(action, enabled); };
+      handle.setMoveSpeed = (walk, run = walk) => {
+        requireEntry(handle);
+        const speed = positive(walk, "speed", true), runSpeed = positive(run, "runSpeed", true);
+        entry.speed = speed; entry.runSpeed = runSpeed;
+      };
+      return handle;
+    } catch (error) { release(); remove(handle); throw error; }
   }
   async function addFpsPlayer(config = {}) {
     live();
@@ -255,16 +300,23 @@ export async function createMechanics(options = {}) {
       e.vehicle?.step(dt);
       if (!e.state) continue;
       desired.copy(e.velocity);
-      let jumpDown = false;
-      if (e.fps) {
-        const move = e.fps.active ? e.input.getMovementVector() : { x: 0, z: 0 };
-        e.camera.getWorldDirection(forward); forward.y = 0; forward.normalize();
+      let jumpDown = e.jumpRequested;
+      e.jumpRequested = false;
+      const player = e.fps ?? e.third;
+      if (player) {
+        const move = player.active ? e.input.getMovementVector() : { x: 0, z: 0 };
+        if (e.third) e.third.direction(forward); else e.camera.getWorldDirection(forward);
+        forward.y = 0; forward.normalize();
         right.crossVectors(forward, up).normalize();
         desired.copy(right).multiplyScalar(move.x).addScaledVector(forward, -move.z);
         if (desired.lengthSq() > 1) desired.normalize();
         desired.multiplyScalar(e.input.isActionActive("run") ? e.runSpeed : e.speed);
-        jumpDown = e.fps.active && e.jumpSpeed > 0 && e.input.isActionActive("jump");
-        if (e.fps.active) e.body.setNextKinematicRotation(heading.setFromAxisAngle(up, Math.atan2(-forward.x, -forward.z)));
+        const pressed = e.input.consumeActionPress("jump");
+        jumpDown = player.active && (jumpDown || e.input.isActionActive("jump") || pressed);
+        if (player.active && (e.third?.facing !== "movement" || desired.lengthSq() > 1e-8)) {
+          const face = e.third?.facing === "movement" ? desired : forward;
+          e.body.setNextKinematicRotation(heading.setFromAxisAngle(up, Math.atan2(-face.x, -face.z)));
+        }
       }
       moveCharacter({ physics, body: e.body, collider: e.collider, controller: e.controller, state: e.state, velocity: desired, jumpDown, jumpSpeed: e.jumpSpeed ?? 0 }, dt);
     }
@@ -305,7 +357,11 @@ export async function createMechanics(options = {}) {
     return { body: colliders.get(hit.collider.handle), point: o.addScaledVector(d, hit.timeOfImpact), normal: vector(hit.normal), distance: hit.timeOfImpact };
   }
   const api = {
-    addBody, addCharacter, addFpsPlayer, addArcadeVehicle, castRay,
+    addBody, addCharacter, addFpsPlayer, addThirdPersonPlayer, addArcadeVehicle, castRay,
+    addStaticMesh(mesh, config = {}) {
+      live();
+      return addBody({ friction: config.friction, restitution: config.restitution, sensor: config.sensor, collisionGroups: config.collisionGroups, data: config.data, type: "fixed" }, staticMeshShape(mesh, RAPIER, config));
+    },
     castSegment(from, to, config = {}) {
       const origin = vector(from), direction = vector(to).sub(origin), distance = direction.length();
       if (!distance) { live(); return null; }
@@ -317,14 +373,19 @@ export async function createMechanics(options = {}) {
       if (advancing) throw new Error("Mechanics.advance cannot be called recursively.");
       advancing = true;
       try {
+        if (options.autoPause !== false) for (const e of entries.values()) {
+          const controller = e.fps ?? e.third ?? e.vehicle;
+          if (e.input && controller?.enabled && !controller.active) shouldPause = true;
+        }
         const frameDelta = Math.min(dt, maxFrameDelta);
         diagnostics.frames++;
         if (shouldPause !== paused) {
           accumulator = 0; paused = shouldPause;
-          for (const e of entries.values()) { if (paused) { e.input?.reset(); e.vehicle?.clear(); } readPose(e, true); }
+          for (const e of entries.values()) { if (paused) { e.input?.reset(); e.vehicle?.clear(); e.jumpRequested = false; } readPose(e, true); }
         }
         for (const e of entries.values()) e.fps?.update();
-        if (paused) { for (const e of entries.values()) e.vehicle?.updateCamera(); return; }
+        for (const e of entries.values()) e.third?.updateInput(paused ? 0 : frameDelta);
+        if (paused) { for (const e of entries.values()) { e.third?.updateCamera(); e.vehicle?.updateCamera(); } return; }
         diagnostics.droppedSeconds += dt - frameDelta;
         accumulator += frameDelta;
         let steps = 0;
@@ -343,7 +404,7 @@ export async function createMechanics(options = {}) {
           accumulator = Math.max(0, accumulator - dropped); diagnostics.droppedSeconds += dropped;
         }
         const alpha = options.interpolate === false ? 1 : Math.min(1, accumulator / fixedTimeStep);
-        for (const e of entries.values()) { present(e, alpha); e.fps?.update(); e.vehicle?.updateCamera(); }
+        for (const e of entries.values()) { present(e, alpha); e.fps?.update(); e.third?.updateCamera(); e.vehicle?.updateCamera(); }
       } finally { advancing = false; }
     },
     getDiagnostics: () => ({ ...diagnostics, bodies: entries.size, contacts: contacts.size, disposed }),

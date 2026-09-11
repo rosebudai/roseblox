@@ -86,7 +86,9 @@ test("focus, pause and reset clear controls, resume does not require pointer loc
   assert.equal(car.active, true); assert.equal(browser.doc.activeElement, browser.canvas);
   event(browser.win, "keydown", { code: "KeyW" }); advance(m, .5); assert.ok(car.speed > 5);
   event(browser.win, "blur"); assert.equal(car.active, false);
-  const speed = car.speed; advance(m, .25); assert.ok(car.speed < speed);
+  const speed = car.speed, pausedPosition = car.position; let rules = 0;
+  m.advance(30, { afterStep: () => rules++ });
+  assert.equal(car.speed, speed); assert.deepEqual(car.position, pausedPosition); assert.equal(rules, 0);
   event(browser.canvas, "mousedown"); assert.equal(car.active, true);
   event(browser.win, "keydown", { code: "Escape" }); event(browser.win, "keyup", { code: "Escape" });
   assert.equal(car.active, false, "a quick Escape tap pauses without waiting for a physics step");
@@ -154,4 +156,12 @@ test("invalid config fails before claiming resources; input initialization can b
   const pending = m.addArcadeVehicle(browser); m.dispose();
   await assert.rejects(pending, /removed during input initialization/);
   assert.equal(browser.canvas.tabIndex, -1);
+});
+
+test("the reset key uses the game's checkpoint callback once, instead of also resetting to spawn", async t => {
+  const browser = surface(); let car, calls = 0;
+  const f = await fixture(t, { ...browser, onReset: () => { calls++; car.reset([30, 1, 40], Math.PI); } }); car = f.car;
+  event(browser.win, "keydown", { code: "KeyR", repeat: false });
+  assert.equal(calls, 1); assert.deepEqual(car.position.toArray(), [30, 1, 40]);
+  event(browser.win, "keydown", { code: "KeyR", repeat: true }); assert.equal(calls, 1);
 });
