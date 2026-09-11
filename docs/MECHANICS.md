@@ -38,6 +38,24 @@ Call `player.start()` from a real Start click after essential assets load. It re
 
 `mechanics.addCharacter({position,radius:.35,height:1.1,velocity:[0,0,0]})` creates an NPC capsule with the same grounded collision/gravity motor and no input/camera/AI. Supply world-space horizontal desired velocity with `setVelocity`, usually from `beforeStep`; set zero to stop walking. Gravity remains engine-owned. Choose routes and facing in game code. `spawnClearance` optionally overrides the small default spawn/reset offset; it does not rescue a body embedded deeply in geometry.
 
+## Arcade racing
+
+```js
+const car = await mechanics.addArcadeVehicle({canvas, camera, position:[0,1,8], heading:0});
+car.bindObject(carRoot); // Root origin is the chassis center; art is a child.
+startButton.onclick = () => car.start();
+// In the game's existing RAF, before rendering:
+mechanics.advance(dt, {paused: !car.active, afterStep: updateRaceRules});
+```
+
+W/Up accelerates, S/Down brakes then reverses, A/D or arrows steer, Space drifts, R resets to the initial spawn, Escape pauses. Canvas click resumes; window blur pauses. Mouse lock is unnecessary. `start()` enables controls, `stop()` ends driving, `active` gates gameplay, and `enabled` remains true while waiting to resume. `reset(position?,heading?)` teleports, clears velocity/input and snaps the camera; supply a checkpoint position when implementing recovery UI. Heading is yaw in radians, with zero facing world -Z.
+
+The dynamic box stays upright, uses continuous collision detection, retains gravity/airborne momentum and computes drive from actual physics velocity. `speed` is signed metres/second and `grounded` reports road contact from four probes. Chassis `size` defaults to `[1.8,.8,3.6]`. Optional tuning: `maxSpeed:32, reverseSpeed:10, acceleration:16, braking:28, coast:2, steerRate:1.8, grip:9, driftGrip:1.8`. This supports flat tracks and gentle ramps; wheel suspension, banking and rollovers require specialized physics.
+
+The optional camera trails the interpolated chassis, retracts against collider segments and uses `cameraDistance:7, cameraHeight:3.5, lookAhead:4`. Keep it at the scene root and let the controller own its pose. Omit `camera` to author a different camera. Omit `canvas` for AI/analog-only vehicles. `setControls({throttle,steer,brake,handbrake})` replaces the analog sample; throttle/steer range -1..1, brake 0..1, positive steering is right. Unspecified fields reset to zero. Call `start()` for AI vehicles too. Pause, stop, reset and focus loss clear held controls.
+
+Author car models, wheel animations, tracks, checkpoint sensors, lap rules, opponents, sound and HUD in the game. The controller supplies no visual meshes or asset policy. Put a feet-normalized car model at child Y=`-size[1]/2`; correct its front to local -Z and scale it to the chassis on that child. Keep procedural details and generated model subjects appropriate to the game's art direction.
+
 ## Hits, line of sight and contacts
 
 `mechanics.castRay(origin,direction,{maxDistance:100,exclude:player})` returns the nearest collider hit `{body,point,normal,distance}` or null. Vectors accept three-number arrays or Vector3. Solid world cover is included by default; `exclude` accepts a handle or array. Damage only when `hit.body.data` identifies a target. For shooting, obtain world origin/direction from the camera after its current look update. `mechanics.castSegment(from,to,{exclude:[source,target]})` tests line of sight/projectile travel up to the endpoint.

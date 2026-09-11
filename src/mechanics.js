@@ -3,6 +3,7 @@ import { setupPhysics } from "./resources/physics/physicsSetup.js";
 import { setupInput } from "./resources/inputSetup.js";
 import { createFirstPersonCamera, firstPersonOptions } from "./firstPersonCamera.js";
 import { moveCharacter, createCapsuleController, capsuleSpawnClearance } from "./characterMotor.js";
+import { arcadeVehicleOptions, createArcadeVehicle } from "./arcadeVehicle.js";
 
 const cameraOwners = new WeakMap(), canvasOwners = new WeakMap(), visualOwners = new WeakMap();
 const up = new THREE.Vector3(0, 1, 0);
@@ -81,7 +82,7 @@ export async function createMechanics(options = {}) {
     const entry = entries.get(handle);
     if (!entry) return;
     entries.delete(handle); colliders.delete(entry.collider.handle); changedColliders.delete(entry.collider);
-    entry.fps?.dispose(); entry.input?.dispose();
+    entry.fps?.dispose(); entry.vehicle?.dispose(); entry.input?.dispose();
     for (const object of entry.bindings) if (visualOwners.get(object) === entry) visualOwners.delete(object);
     entry.bindings.clear();
     for (const [key, pair] of [...contacts]) {
@@ -121,7 +122,7 @@ export async function createMechanics(options = {}) {
       id: nextId++, data: config.data ?? {},
       get position() { return requireEntry(handle).position.clone(); },
       get quaternion() { return requireEntry(handle).quaternion.clone(); },
-      get grounded() { return requireEntry(handle).state?.grounded ?? false; },
+      get grounded() { const e = requireEntry(handle); return e.vehicle?.grounded ?? e.state?.grounded ?? false; },
       get removed() { return !entries.has(handle); },
       setVelocity(value) {
         const e = requireEntry(handle), v = vector(value);
@@ -149,7 +150,7 @@ export async function createMechanics(options = {}) {
         e.body.setLinvel({ x: 0, y: 0, z: 0 }, true); e.body.setAngvel({ x: 0, y: 0, z: 0 }, true);
         if (e.state) { e.state.verticalVelocity = 0; e.state.grounded = false; e.state.jumpHeld = false; e.velocity.set(0, 0, 0); }
         changedColliders.add(e.collider);
-        e.input?.reset(); readPose(e, true); present(e, 1); e.fps?.update();
+        e.input?.reset(); e.vehicle?.resetMotion(); readPose(e, true); present(e, 1); e.fps?.update(); e.vehicle?.updateCamera();
       },
       bindObject(object) { return bind(requireEntry(handle), object); },
       remove: () => remove(handle),
@@ -199,6 +200,33 @@ export async function createMechanics(options = {}) {
       remove(handle); throw error;
     }
   }
+  async function addArcadeVehicle(config = {}) {
+    live();
+    const { camera, canvas } = config;
+    if (camera && (!camera.isPerspectiveCamera || (camera.parent && !camera.parent.isScene))) throw new Error("Vehicle camera must be a perspective camera at the scene root.");
+    if (canvas && !canvas.ownerDocument) throw new Error("Vehicle input requires the host canvas.");
+    if ((camera && cameraOwners.has(camera)) || (canvas && canvasOwners.has(canvas))) throw new Error("Release the existing controller before claiming this camera or canvas.");
+    const settings = arcadeVehicleOptions(config), size = vector(config.size, [1.8, .8, 3.6]);
+    for (const n of size.toArray()) positive(n, "Vehicle size");
+    const handle = addBody({ ...config, type: "dynamic", shape: { type: "box", size }, position: config.position ?? [0, 1, 0], quaternion: new THREE.Quaternion().setFromAxisAngle(up, settings.heading), sensor: false });
+    const entry = entries.get(handle);
+    if (camera) cameraOwners.set(camera, entry);
+    if (canvas) canvasOwners.set(canvas, entry);
+    const release = () => {
+      if (camera && cameraOwners.get(camera) === entry) cameraOwners.delete(camera);
+      if (canvas && canvasOwners.get(canvas) === entry) canvasOwners.delete(canvas);
+    };
+    try {
+      if (canvas) entry.input = await setupInput({ canvas, inputWindow: canvas.ownerDocument.defaultView, autoFocus: false, keyMappings: { Space: "handbrake", KeyR: "reset" } });
+      if (disposed || !entries.has(handle)) { entry.input?.dispose(); throw new Error("Vehicle was removed during input initialization."); }
+      entry.collider.setFrictionCombineRule(RAPIER.CoefficientCombineRule.Min);
+      entry.vehicle = createArcadeVehicle({ entry, config, size, input: entry.input, castRay, castSegment: api.castSegment, requireLive: () => requireEntry(handle), release });
+      for (const name of ["active", "enabled", "speed"]) Object.defineProperty(handle, name, { get: () => entry.vehicle[name] });
+      for (const name of ["start", "stop", "setControls", "reset"]) handle[name] = (...args) => entry.vehicle[name](...args);
+      entry.vehicle.updateCamera();
+      return handle;
+    } catch (error) { release(); remove(handle); throw error; }
+  }
   function contactKey(a, b) { return a.id < b.id ? `${a.id}/${b.id}` : `${b.id}/${a.id}`; }
   const physicalContacts = new Map();
   function processContacts() {
@@ -224,6 +252,7 @@ export async function createMechanics(options = {}) {
   function step(dt) {
     for (const e of entries.values()) {
       e.previousPosition.copy(e.position); e.previousRotation.copy(e.quaternion);
+      e.vehicle?.step(dt);
       if (!e.state) continue;
       desired.copy(e.velocity);
       let jumpDown = false;
@@ -276,7 +305,7 @@ export async function createMechanics(options = {}) {
     return { body: colliders.get(hit.collider.handle), point: o.addScaledVector(d, hit.timeOfImpact), normal: vector(hit.normal), distance: hit.timeOfImpact };
   }
   const api = {
-    addBody, addCharacter, addFpsPlayer, castRay,
+    addBody, addCharacter, addFpsPlayer, addArcadeVehicle, castRay,
     castSegment(from, to, config = {}) {
       const origin = vector(from), direction = vector(to).sub(origin), distance = direction.length();
       if (!distance) { live(); return null; }
@@ -292,10 +321,10 @@ export async function createMechanics(options = {}) {
         diagnostics.frames++;
         if (shouldPause !== paused) {
           accumulator = 0; paused = shouldPause;
-          for (const e of entries.values()) { if (paused) e.input?.reset(); readPose(e, true); }
+          for (const e of entries.values()) { if (paused) { e.input?.reset(); e.vehicle?.clear(); } readPose(e, true); }
         }
         for (const e of entries.values()) e.fps?.update();
-        if (paused) return;
+        if (paused) { for (const e of entries.values()) e.vehicle?.updateCamera(); return; }
         diagnostics.droppedSeconds += dt - frameDelta;
         accumulator += frameDelta;
         let steps = 0;
@@ -314,7 +343,7 @@ export async function createMechanics(options = {}) {
           accumulator = Math.max(0, accumulator - dropped); diagnostics.droppedSeconds += dropped;
         }
         const alpha = options.interpolate === false ? 1 : Math.min(1, accumulator / fixedTimeStep);
-        for (const e of entries.values()) { present(e, alpha); e.fps?.update(); }
+        for (const e of entries.values()) { present(e, alpha); e.fps?.update(); e.vehicle?.updateCamera(); }
       } finally { advancing = false; }
     },
     getDiagnostics: () => ({ ...diagnostics, bodies: entries.size, contacts: contacts.size, disposed }),
