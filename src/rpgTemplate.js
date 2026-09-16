@@ -5,7 +5,7 @@ import { createRpgWorld, fitRpgModel } from "./rpg.js";
 import { createRpgSession, createRpgProgress } from "./rpgSession.js";
 import { RPG_BINDINGS } from "./rpgProfile.js";
 
-export const RPG_TEMPLATE_VERSION = "0.1.0-experiment";
+export const RPG_TEMPLATE_VERSION = "0.1.1-experiment";
 export { RPG_BINDINGS, createRpgSession, createRpgProgress };
 
 const css = `
@@ -28,7 +28,8 @@ html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#111;color:
 export async function createRpgGame(config) {
   const host = config.container ?? document.body;
   const root = document.createElement("div"); root.className = "rpg";
-  const style = document.createElement("style"); style.textContent = css; root.append(style); host.append(root);
+  // Generated themes stay unlayered so their author styles outrank these defaults.
+  const style = document.createElement("style"); style.textContent = `@layer rpg-base { ${css} }`; root.append(style); host.append(root);
   const ui = document.createElement("div"); ui.className = "rpg-ui";
   const node = (tag, className, parent = ui) => { const n = document.createElement(tag); n.className = className; parent.append(n); return n; };
   const status = node("div", "rpg-status rpg-panel");
