@@ -1,0 +1,16 @@
+<!doctype html>
+<html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>RPG controls · cursor and right-drag</title>
+<style>
+*{box-sizing:border-box}body{margin:0;background:#172721;color:#fff3cb;font:15px Georgia,serif;overflow:hidden}canvas{display:block;width:100vw;height:100vh;outline:0}
+button,select{font:inherit;color:#fff3cb;background:#263b31;border:2px solid #b29654;padding:10px 15px;cursor:pointer}button:hover{background:#42634a}
+#top{position:absolute;top:18px;left:20px;right:20px;display:flex;justify-content:space-between;align-items:start;pointer-events:none}#top>*{pointer-events:auto}h1{font-size:21px;margin:0 0 6px}small{color:#ccd9c7}#target{position:absolute;left:20px;bottom:92px;background:#17251de6;border:2px solid #ab914d;padding:14px;min-width:260px}#target b{display:block;font-size:20px;margin-bottom:7px}#target p{margin:7px 0;max-width:360px;line-height:1.4}#help{position:absolute;bottom:18px;left:20px;right:20px;background:#17251de6;border-top:2px solid #ab914d;padding:12px;line-height:1.7;text-align:center;pointer-events:none}
+#menu{position:absolute;inset:0;display:grid;place-content:center;text-align:center;background:#10251d99}#menu[hidden]{display:none}#menu>div{background:#182c24;padding:30px;border:3px solid #b29654;max-width:500px}#status{font:12px monospace;color:#c9dcb4;margin-top:12px}a{color:#e5c67c}
+</style>
+<script type="importmap">{"imports":{"three":"https://esm.sh/three@0.184.0"}}</script>
+<canvas id="game" aria-label="RPG controls playground"></canvas>
+<div id="top"><div><h1>RPG controls playground</h1><small>Authored control test · excluded from one-shot metrics</small></div><label>Keyboard <select id="layout"><option value="classic">WoW: A/D turn, Q/E strafe</option><option value="orbit">WASD move, Q/E turn</option></select></label></div>
+<section id="target"><b id="name">No target selected</b><p id="description">Left click the elder, chest, or training dummy.</p><button id="interact">Interact [F]</button> <button id="attack">Attack [1]</button><div id="status"></div></section>
+<div id="help"></div>
+<div id="menu"><div><h1 id="menu-title">The cursor is yours</h1><p>Click an object to select it. Hold the right mouse button and drag to turn. Release it to use the cursor again.</p><button id="start">Enter courtyard</button><p><a href="../">Back to comparison</a></p></div></div>
+<script type="module" src="main.js"></script></html>

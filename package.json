@@ -8,7 +8,8 @@
     ".": "./src/index.js",
     "./mechanics": "./src/mechanics.js",
     "./rpg": "./src/rpg.js",
-    "./visuals": "./src/visuals.js"
+    "./visuals": "./src/visuals.js",
+    "./rpg-template": "./src/rpgTemplate.js"
   },
   "scripts": {
     "build": "node scripts/build.mjs",

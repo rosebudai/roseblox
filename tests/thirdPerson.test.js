@@ -91,6 +91,7 @@ test("third-person camera orbits through full turns, has broad finite pitch, and
   assert.ok(browser.camera.getWorldDirection(new THREE.Vector3()).y < -.99);
   event(browser.doc, "mousemove", { movementX: 0, movementY: -400 });
   assert.ok(browser.camera.getWorldDirection(new THREE.Vector3()).y > .96);
+  event(browser.doc, "mousemove", { movementX: 0, movementY: 160 });
   actor.stop(); actor.start();
   const wall = m.addBody({ position: [0, 2, 3], shape: { type: "box", size: [20, 8, .5] } });
   m.advance(0); assert.ok(browser.camera.position.z < 2.6);

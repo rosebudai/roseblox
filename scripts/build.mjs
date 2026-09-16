@@ -7,7 +7,7 @@ import { fileURLToPath } from "node:url";
 const root = fileURLToPath(new URL("../", import.meta.url));
 const packageJson = JSON.parse(await readFile(`${root}/package.json`, "utf8"));
 await mkdir(`${root}/build`, { recursive: true });
-for (const name of ["roseblox", "mechanics", "visuals", "rpg"]) {
+for (const name of ["roseblox", "mechanics", "visuals", "rpg", "rpgTemplate"]) {
   await build({
     absWorkingDir: root,
     entryPoints: [name === "roseblox" ? "src/index.js" : `src/${name}.js`],
@@ -30,9 +30,10 @@ const guide = await readFile(`${root}/docs/ROSEBLOX.md`);
 await writeFile(`${root}/build/README.md`, guide);
 await copyFile(`${root}/docs/MECHANICS.md`, `${root}/build/MECHANICS.md`);
 await copyFile(`${root}/docs/RPG.md`, `${root}/build/RPG.md`);
+await copyFile(`${root}/docs/RPG_TEMPLATE.md`, `${root}/build/RPG_TEMPLATE.md`);
 const sha = process.env.ROSEBLOX_SOURCE_REVISION ?? execFileSync("git", ["rev-parse", "HEAD"], { cwd: root, encoding: "utf8" }).trim();
 if (!/^[a-f0-9]{40}$/.test(sha)) throw new Error("Source revision must be a full Git SHA");
-const dirty = process.env.ROSEBLOX_SOURCE_REVISION ? true : execFileSync("git", ["status", "--porcelain", "--", "src", "scripts/build.mjs", "package.json", "package-lock.json", "docs/ROSEBLOX.md", "docs/MECHANICS.md", "docs/RPG.md"], { cwd: root, encoding: "utf8" }).trim().length > 0;
+const dirty = process.env.ROSEBLOX_SOURCE_REVISION ? true : execFileSync("git", ["status", "--porcelain", "--", "src", "scripts/build.mjs", "package.json", "package-lock.json", "docs/ROSEBLOX.md", "docs/MECHANICS.md", "docs/RPG.md", "docs/RPG_TEMPLATE.md", "templates/rpg"], { cwd: root, encoding: "utf8" }).trim().length > 0;
 const manifest = {
   schema_version: 1,
   source_revision: sha,
@@ -41,7 +42,7 @@ const manifest = {
   dependencies: Object.fromEntries(["three", "@dimforge/rapier3d-compat", "miniplex", "camera-controls"].map(name => [name, packageJson.devDependencies[name]])),
   files: {},
 };
-for (const name of ["roseblox.js", "README.md", "mechanics.js", "visuals.js", "MECHANICS.md", "rpg.js", "RPG.md"]) {
+for (const name of ["roseblox.js", "README.md", "mechanics.js", "visuals.js", "MECHANICS.md", "rpg.js", "RPG.md", "rpgTemplate.js", "RPG_TEMPLATE.md"]) {
   const bytes = await readFile(`${root}/build/${name}`);
   manifest.files[name] = { sha256: createHash("sha256").update(bytes).digest("hex"), bytes: bytes.length };
 }

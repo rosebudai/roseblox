@@ -30,16 +30,34 @@ export function fitRpgModel(model, { height = 1.8, yaw = 0 } = {}) {
 /** RPG-specific surface over the shared physics motor; no rendering or game rules. */
 export async function createRpgWorld(options = {}) {
   const mechanics = await createMechanics(options);
-  async function addPlayer({ model, feet = [0, 0, 0], height = 1.8, radius = .35, modelYaw = 0, ...controls }) {
+  function prepareActor(model, feet, height, radius, modelYaw) {
     positive(height, "height"); positive(radius, "radius");
-    if (height < 2 * radius) throw new Error("Player height must be at least twice its radius.");
+    if (height < 2 * radius) throw new Error("Actor height must be at least twice its radius.");
     const spawn = feetVector(feet).add(new THREE.Vector3(0, height / 2, 0));
     // Validate/fit before creating a physics or input owner.
     const visual = fitRpgModel(model, { height, yaw: modelYaw });
+    return { spawn, visual };
+  }
+  function attachActor(body, visual, height) {
+    const root = new THREE.Group();
+    visual.position.y = -height / 2;
+    root.add(visual); body.bindObject(root);
+    return {
+      body, root, visual,
+      get position() { return body.position.add(new THREE.Vector3(0, -height / 2, 0)); },
+      get grounded() { return body.grounded; },
+      jump: () => body.jump(),
+      teleport: feet => body.teleport(feetVector(feet).add(new THREE.Vector3(0, height / 2, 0))),
+      remove: () => { body.remove(); root.removeFromParent(); },
+    };
+  }
+  async function addPlayer({ model, feet = [0, 0, 0], height = 1.8, radius = .35, modelYaw = 0, ...controls }) {
+    const { spawn, visual } = prepareActor(model, feet, height, radius, modelYaw);
     let body;
     try {
       body = await mechanics.addThirdPersonPlayer({
-        ...controls, position: spawn.toArray(), radius, height: height - 2 * radius,
+        ...controls, position: spawn.toArray(), radius, height: height - 2 * radius, forwardAxis: "+Z",
+        controlMode: controls.controlMode ?? "mmo",
         jumpSpeed: controls.jumpSpeed ?? 7, facing: controls.facing ?? "camera",
         targetOffset: controls.targetOffset ?? [0, height * .3, 0],
       });
@@ -48,24 +66,31 @@ export async function createRpgWorld(options = {}) {
       model.removeFromParent();
       throw error;
     }
-    const root = new THREE.Group();
-    visual.position.y = -height / 2;
-    root.add(visual); body.bindObject(root);
-    return {
-      body, root, visual,
-      get position() { return body.position.add(new THREE.Vector3(0, -height / 2, 0)); },
-      get active() { return body.active; },
-      get grounded() { return body.grounded; },
-      get locked() { return body.locked; },
-      start: () => body.start(), stop: () => body.stop(), jump: () => body.jump(),
+    const actor = attachActor(body, visual, height);
+    Object.defineProperties(actor, {
+      active: { get: () => body.active },
+      locked: { get: () => body.locked },
+    });
+    return Object.assign(actor, {
+      start: () => body.start(), stop: () => body.stop(),
+      pause: () => body.pause(), resume: () => body.resume(),
       setAction: (name, down) => body.setAction(name, down),
       setMoveSpeed: (walk, run = walk) => body.setMoveSpeed(walk, run),
-      teleport: nextFeet => body.teleport(feetVector(nextFeet).add(new THREE.Vector3(0, height / 2, 0))),
-      remove: () => { body.remove(); root.removeFromParent(); },
-    };
+    });
+  }
+  function addNpc({ model, feet = [0, 0, 0], height = 1.8, radius = .35, modelYaw = 0, autoFaceMovement = true, ...config }) {
+    const { spawn, visual } = prepareActor(model, feet, height, radius, modelYaw);
+    let body;
+    try {
+      body = mechanics.addCharacter({ ...config, position: spawn.toArray(), radius, height: height - 2 * radius, forwardAxis: "+Z", autoFaceMovement });
+    } catch (error) { model.removeFromParent(); throw error; }
+    return Object.assign(attachActor(body, visual, height), {
+      setVelocity: value => body.setVelocity(value),
+      faceDirection: value => body.faceDirection(value),
+    });
   }
   return {
-    addPlayer,
+    addPlayer, addNpc,
     addBody: mechanics.addBody,
     addCharacter: mechanics.addCharacter,
     addStaticMesh: mechanics.addStaticMesh,

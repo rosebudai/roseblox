@@ -4,7 +4,7 @@ import { setupInput } from "./resources/inputSetup.js";
 import { createFirstPersonCamera, firstPersonOptions } from "./firstPersonCamera.js";
 import { moveCharacter, createCapsuleController, capsuleSpawnClearance } from "./characterMotor.js";
 import { arcadeVehicleOptions, createArcadeVehicle } from "./arcadeVehicle.js";
-import { thirdPersonOptions, createThirdPersonCamera } from "./thirdPersonCamera.js";
+import { thirdPersonOptions, thirdPersonKeyMappings, createThirdPersonCamera } from "./thirdPersonCamera.js";
 import { staticMeshShape } from "./staticMesh.js";
 
 const cameraOwners = new WeakMap(), canvasOwners = new WeakMap(), visualOwners = new WeakMap();
@@ -42,7 +42,7 @@ export async function createMechanics(options = {}) {
   world.integrationParameters.maxCcdSubsteps = maxCcdSubsteps;
   const entries = new Map(), colliders = new Map(), contacts = new Map(), listeners = new Set(), changedColliders = new Set();
   let nextId = 1, accumulator = 0, disposed = false, paused = false, advancing = false;
-  const diagnostics = { frames: 0, fixedSteps: 0, simulatedSeconds: 0, droppedSeconds: 0 };
+  const diagnostics = { frames: 0, fixedSteps: 0, simulatedSeconds: 0, droppedSeconds: 0, negativeDeltaFrames: 0 };
   const forward = new THREE.Vector3(), right = new THREE.Vector3(), desired = new THREE.Vector3();
   const heading = new THREE.Quaternion(), parentRotation = new THREE.Quaternion();
   const live = () => { if (disposed) throw new Error("Mechanics is disposed."); };
@@ -170,6 +170,8 @@ export async function createMechanics(options = {}) {
   }
   function addCharacter(config = {}) {
     const jumpSpeed = positive(config.jumpSpeed ?? 7, "jumpSpeed", true);
+    const forwardAxis = config.forwardAxis ?? "+Z";
+    if (forwardAxis !== "+Z" && forwardAxis !== "-Z") throw new Error("forwardAxis must be +Z or -Z.");
     const spawnClearance = positive(config.spawnClearance ?? capsuleSpawnClearance(physics, fixedTimeStep), "spawnClearance", true);
     const position = vector(config.position, [0, 2, 0]); position.y += spawnClearance;
     const handle = addBody({ ...config, position, type: "kinematic", shape: { type: "capsule", radius: config.radius ?? 0.35, height: config.height ?? 1.1 } });
@@ -178,7 +180,14 @@ export async function createMechanics(options = {}) {
       entry.controller = createCapsuleController(physics);
       entry.state = { enabled: true, grounded: false, verticalVelocity: 0, jumpHeld: false };
       entry.velocity = vector(config.velocity); entry.spawnClearance = spawnClearance;
+      entry.forwardAxis = forwardAxis; entry.autoFaceMovement = config.autoFaceMovement === true;
       entry.jumpSpeed = jumpSpeed; entry.jumpRequested = false;
+      handle.faceDirection = value => {
+        const e = requireEntry(handle), direction = vector(value);
+        if (direction.x * direction.x + direction.z * direction.z < 1e-12) return;
+        const sign = e.forwardAxis === "+Z" ? 1 : -1;
+        handle.setRotation(heading.setFromAxisAngle(up, Math.atan2(sign * direction.x, sign * direction.z)));
+      };
       handle.jump = () => {
         const e = requireEntry(handle);
         if (!e.state.grounded || e.state.jumpHeld || e.jumpSpeed === 0) return false;
@@ -194,19 +203,19 @@ export async function createMechanics(options = {}) {
     if (cameraOwners.has(camera) || canvasOwners.has(canvas)) throw new Error("Release the existing controller before claiming this camera or canvas.");
     thirdPersonOptions(config);
     const speed = positive(config.speed ?? 5, "speed"), runSpeed = positive(config.runSpeed ?? 8, "runSpeed");
-    const handle = addCharacter(config), entry = entries.get(handle);
+    const handle = addCharacter({ ...config, forwardAxis: config.forwardAxis ?? "-Z" }), entry = entries.get(handle);
     cameraOwners.set(camera, entry); canvasOwners.set(canvas, entry);
     const release = () => {
       if (cameraOwners.get(camera) === entry) cameraOwners.delete(camera);
       if (canvasOwners.get(canvas) === entry) canvasOwners.delete(canvas);
     };
     try {
-      entry.input = await setupInput({ canvas, inputWindow: canvas.ownerDocument.defaultView, autoFocus: false });
+      entry.input = await setupInput({ canvas, inputWindow: canvas.ownerDocument.defaultView, autoFocus: false, keyMappings: thirdPersonKeyMappings(config) });
       if (disposed || !entries.has(handle)) { entry.input.dispose(); throw new Error("Third-person player was removed during input initialization."); }
       entry.speed = speed; entry.runSpeed = runSpeed; entry.camera = camera;
-      entry.third = createThirdPersonCamera({ entry, config, input: entry.input, castSegment: api.castSegment, requireLive: () => requireEntry(handle), release });
+      entry.third = createThirdPersonCamera({ entry, config, input: entry.input, castSegment: api.castSegment, castRay, requireLive: () => requireEntry(handle), release });
       for (const name of ["active", "enabled", "locked"]) Object.defineProperty(handle, name, { get: () => entry.third[name] });
-      for (const name of ["start", "stop"]) handle[name] = () => entry.third[name]();
+      for (const name of ["start", "stop", "pause", "resume"]) handle[name] = () => entry.third[name]();
       handle.setAction = (action, enabled) => { requireEntry(handle); entry.input.setAction(action, enabled); };
       handle.setMoveSpeed = (walk, run = walk) => {
         requireEntry(handle);
@@ -223,7 +232,7 @@ export async function createMechanics(options = {}) {
     if (cameraOwners.has(camera) || canvasOwners.has(canvas)) throw new Error("Release the existing FPS player before claiming this camera or canvas.");
     const fpsOptions = firstPersonOptions({ ...config, hideBody: false });
     const speed = positive(config.speed ?? 5, "speed"), runSpeed = positive(config.runSpeed ?? 8, "runSpeed"), jumpSpeed = positive(config.jumpSpeed ?? 7, "jumpSpeed", true);
-    const handle = addCharacter(config), entry = entries.get(handle);
+    const handle = addCharacter({ ...config, forwardAxis: "-Z" }), entry = entries.get(handle);
     cameraOwners.set(camera, entry); canvasOwners.set(canvas, entry);
     try {
       entry.input = await setupInput({ canvas, inputWindow: canvas.ownerDocument.defaultView, autoFocus: false });
@@ -304,7 +313,7 @@ export async function createMechanics(options = {}) {
       e.jumpRequested = false;
       const player = e.fps ?? e.third;
       if (player) {
-        const move = player.active ? e.input.getMovementVector() : { x: 0, z: 0 };
+        const move = player.active ? (e.third ? e.third.movement() : e.input.getMovementVector()) : { x: 0, z: 0 };
         if (e.third) e.third.direction(forward); else e.camera.getWorldDirection(forward);
         forward.y = 0; forward.normalize();
         right.crossVectors(forward, up).normalize();
@@ -315,8 +324,12 @@ export async function createMechanics(options = {}) {
         jumpDown = player.active && (jumpDown || e.input.isActionActive("jump") || pressed);
         if (player.active && (e.third?.facing !== "movement" || desired.lengthSq() > 1e-8)) {
           const face = e.third?.facing === "movement" ? desired : forward;
-          e.body.setNextKinematicRotation(heading.setFromAxisAngle(up, Math.atan2(-face.x, -face.z)));
+          const sign = e.forwardAxis === "+Z" ? 1 : -1;
+          e.body.setNextKinematicRotation(heading.setFromAxisAngle(up, Math.atan2(sign * face.x, sign * face.z)));
         }
+      } else if (e.autoFaceMovement && desired.x * desired.x + desired.z * desired.z > 1e-12) {
+        const sign = e.forwardAxis === "+Z" ? 1 : -1;
+        e.body.setNextKinematicRotation(heading.setFromAxisAngle(up, Math.atan2(sign * desired.x, sign * desired.z)));
       }
       moveCharacter({ physics, body: e.body, collider: e.collider, controller: e.controller, state: e.state, velocity: desired, jumpDown, jumpSpeed: e.jumpSpeed ?? 0 }, dt);
     }
@@ -369,8 +382,12 @@ export async function createMechanics(options = {}) {
     },
     onCollision(fn) { live(); if (typeof fn !== "function") throw new Error("Collision listener must be a function."); listeners.add(fn); return () => listeners.delete(fn); },
     advance(dt, { paused: shouldPause = false, beforeStep, afterStep } = {}) {
-      live(); positive(dt, "dt", true);
+      live();
+      if (!Number.isFinite(dt)) throw new Error("dt must be finite.");
       if (advancing) throw new Error("Mechanics.advance cannot be called recursively.");
+      // RAF timestamps can precede a Timer constructed in the same frame.
+      // Such a frame has no simulation time; it must not stop the host's RAF.
+      if (dt < 0) { diagnostics.negativeDeltaFrames++; dt = 0; }
       advancing = true;
       try {
         if (options.autoPause !== false) for (const e of entries.values()) {

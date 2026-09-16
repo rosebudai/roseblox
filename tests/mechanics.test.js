@@ -145,3 +145,21 @@ test("fixed callbacks can remove bodies or dispose the world; stalled frames hav
   m.advance(1 / 60, { beforeStep: () => actor.remove() }); assert.equal(actor.removed, true);
   m.advance(1 / 60, { afterStep: () => m.dispose() }); assert.equal(m.getDiagnostics().disposed, true);
 });
+
+test("a negative render timestamp delta skips simulation and the next frame remains playable", async t => {
+  const m = await fixture(t, { interpolate: false }), browser = surface();
+  const player = await m.addFpsPlayer({ ...browser, position: [0, 1.1, 0] });
+  player.start(); player.setAction("forward", true);
+  const before = player.position; let callbacks = 0;
+  m.advance(-.0123, { beforeStep: () => callbacks++, afterStep: () => callbacks++ });
+  assert.deepEqual(player.position, before);
+  assert.equal(callbacks, 0); assert.equal(m.getDiagnostics().fixedSteps, 0);
+  advance(m, 1); assert.ok(player.position.z < before.z - 4);
+  assert.ok(browser.camera.position.toArray().every(Number.isFinite));
+  const steps = m.getDiagnostics().fixedSteps, after = player.position;
+  m.advance(-.003); assert.equal(m.getDiagnostics().fixedSteps, steps); assert.deepEqual(player.position, after);
+  advance(m, .1); assert.ok(player.position.z < after.z);
+  assert.equal(m.getDiagnostics().negativeDeltaFrames, 2);
+  assert.equal(m.getDiagnostics().droppedSeconds, 0);
+  for (const invalid of [NaN, Infinity, -Infinity]) assert.throws(() => m.advance(invalid), /finite/);
+});
