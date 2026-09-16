@@ -5,7 +5,7 @@ import { createRpgWorld, fitRpgModel } from "./rpg.js";
 import { createRpgSession, createRpgProgress } from "./rpgSession.js";
 import { RPG_BINDINGS } from "./rpgProfile.js";
 
-export const RPG_TEMPLATE_VERSION = "0.2.0-experiment";
+export const RPG_TEMPLATE_VERSION = "0.2.1-experiment";
 export { RPG_BINDINGS, createRpgSession, createRpgProgress };
 
 const css = `
@@ -25,10 +25,25 @@ export async function createRpgGame(config) {
   root.append(ui);
   let renderer, world, player, session, disposed = false, selected = null, dialogue = null, time = 0, uiTime = 0, lastTime = null;
   let health = config.player?.health ?? 100, noticeUntil = 0, dialogueSerial = 0, noticeText = "";
-  let presentation, loading = true, loadError = null, previousPhase, restartPromise;
+  let presentation, loading = true, loadError = null, previousFocusKey, restartPromise;
   const listeners = [], assets = new Map(), actors = new Map(), mixers = [], cooldowns = new Map(), cleanups = [];
   const scene = new THREE.Scene(), camera = new THREE.PerspectiveCamera(config.visuals?.fov ?? 60, 1, .1, config.visuals?.far ?? 700);
   const spawn = config.player?.feet ?? [0, 1, 0];
+  // Buttons and keyboard input share the same slot without UI-side index arithmetic.
+  const abilities = (config.abilities ?? []).map((ability, slot) => Object.freeze({
+    name: ability.name, slot, key: RPG_BINDINGS.find(b => b.slot === slot)?.label, activate: () => attack(slot),
+  }));
+  function createControlsLegend() {
+    const legend = document.createElement("dl"); legend.setAttribute("aria-label", "Controls");
+    for (const binding of RPG_BINDINGS) {
+      if (binding.slot !== undefined && !abilities[binding.slot]) continue;
+      const term = document.createElement("dt"), key = document.createElement("kbd"), description = document.createElement("dd");
+      key.textContent = binding.label; term.append(key);
+      description.textContent = abilities[binding.slot]?.name ?? binding.description;
+      legend.append(term, description);
+    }
+    return legend;
+  }
   function listen(target, type, handler) { target.addEventListener(type, handler); listeners.push(() => target.removeEventListener(type, handler)); }
   function refocus() { if (!disposed && session?.playing) renderer.domElement.focus({ preventScroll: true }); }
   function bindAction(element, callback) {
@@ -51,20 +66,29 @@ export async function createRpgGame(config) {
     const phase = loadError ? "error" : loading ? "loading" : reasons.includes("dead") ? "dead"
       : dialogue ? "dialogue" : reasons.includes("ready") ? "ready" : session.playing ? "playing" : "paused";
     const target = actors.get(selected);
+    const targetMaxHealth = target?.def.health ?? 30;
     presentation.update({ phase, reasons, title: config.title ?? "Adventure", description: config.description ?? "",
       health, maxHealth: config.player?.health ?? 100, currency: progress.currency, quests: progress.quests,
-      target: target && !target.dead ? { id: selected, name: target.def.name ?? selected, enemy: !!target.def.enemy, health: target.health } : null,
-      abilities: (config.abilities ?? []).map((ability, slot) => ({ name: ability.name, slot, key: RPG_BINDINGS.find(b => b.slot === slot)?.label, remaining: Math.max(0, (cooldowns.get(slot) ?? 0) - time) })),
+      target: target && !target.dead ? { id: selected, name: target.def.name ?? selected, enemy: !!target.def.enemy, health: target.health,
+        maxHealth: targetMaxHealth, healthFraction: targetMaxHealth > 0 ? Math.max(0, Math.min(1, target.health / targetMaxHealth)) : 0 } : null,
+      abilities: abilities.map(ability => ({ ...ability, remaining: Math.max(0, (cooldowns.get(ability.slot) ?? 0) - time) })),
       bindings: RPG_BINDINGS, notice: noticeText, error: loadError, deathText: config.deathText ?? "",
       dialogue: dialogue && { id: dialogue.id, title: dialogue.title, text: dialogue.text, busy: dialogue.busy,
         choices: dialogue.choices.map((choice, index) => ({ id: `${dialogue.id}:${index}`, label: choice.label })) },
     });
-    if (phase !== previousPhase && phase !== "playing") {
-      if (presentation.focus) presentation.focus(phase);
-      else [...ui.querySelectorAll("button,[href],input,select,textarea,[tabindex='0']")]
-        .find(element => !element.disabled && element.getClientRects().length)?.focus();
+    const focusKey = `${phase}:${dialogue?.id ?? ""}`;
+    const available = element => element && ui.contains(element) && !element.disabled && !element.closest("[hidden],[inert]") && element.getClientRects().length;
+    if (phase !== "playing" && (focusKey !== previousFocusKey || !available(document.activeElement))) {
+      const before = document.activeElement;
+      const destination = presentation.focus?.(phase);
+      if (available(destination) && typeof destination.focus === "function") destination.focus({ preventScroll: true });
+      // Preserve imperative focus callbacks used by earlier presentations.
+      else if (document.activeElement === before || !available(document.activeElement)) {
+        [...ui.querySelectorAll("button,[href],input,select,textarea,[tabindex='0']")]
+          .find(available)?.focus({ preventScroll: true });
+      }
     }
-    previousPhase = phase;
+    previousFocusKey = focusKey;
   }
   const progress = createRpgProgress(config.quests, { changed: () => { refresh(); config.onProgress?.(api); } });
   function play() {
@@ -183,7 +207,7 @@ export async function createRpgGame(config) {
   };
   try {
     const actions = Object.freeze({ play, pause: () => session?.hold("pause"), restart, respawn, interact, attack, closeDialogue, chooseDialogue });
-    presentation = config.createUI({ root: ui, game: api, actions, bindAction });
+    presentation = config.createUI({ root: ui, game: api, actions, bindAction, createControlsLegend });
     if (!presentation || typeof presentation.update !== "function") throw new Error("createUI must return {update(state), dispose?()}.");
     // UI key presses must not become movement/ability input. Escape still closes or pauses.
     listen(ui, "keydown", event => { if (event.code !== "Escape") event.stopPropagation(); });
