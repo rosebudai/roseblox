@@ -5,23 +5,13 @@ import { createRpgWorld, fitRpgModel } from "./rpg.js";
 import { createRpgSession, createRpgProgress } from "./rpgSession.js";
 import { RPG_BINDINGS } from "./rpgProfile.js";
 
-export const RPG_TEMPLATE_VERSION = "0.1.1-experiment";
+export const RPG_TEMPLATE_VERSION = "0.2.0-experiment";
 export { RPG_BINDINGS, createRpgSession, createRpgProgress };
 
 const css = `
-html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#111;color:#eee}
-.rpg{position:fixed;inset:0;font:15px system-ui;color:var(--rpg-text,#f3eee0)}
+html,body{margin:0;width:100%;height:100%;overflow:hidden}
+.rpg{position:fixed;inset:0}
 .rpg canvas{display:block;width:100%;height:100%;outline:none}
-.rpg-ui{position:absolute;inset:0;pointer-events:none}
-.rpg button{cursor:pointer;color:inherit;font:inherit;border:1px solid var(--rpg-accent,#bba477);background:var(--rpg-panel,#202126ed);padding:.6em 1em;border-radius:var(--rpg-radius,3px);pointer-events:auto}
-.rpg-panel{background:var(--rpg-panel,#202126ed);padding:1em;border:1px solid var(--rpg-accent,#bba477);border-radius:var(--rpg-radius,3px)}
-.rpg-status{position:absolute;top:18px;left:18px}.rpg-target{margin-top:.6em}
-.rpg-objectives{position:absolute;right:18px;top:18px;max-width:300px;white-space:pre-line}
-.rpg-actions{position:absolute;bottom:24px;left:50%;transform:translateX(-50%);display:flex;gap:8px}
-.rpg-notice{position:absolute;bottom:85px;left:50%;transform:translateX(-50%);text-align:center;text-shadow:0 2px 3px #000}
-.rpg-modal{position:absolute;inset:0;display:grid;place-items:center;background:#0005;pointer-events:auto}
-.rpg-modal[hidden]{display:none}.rpg-modal>.rpg-panel{max-width:520px;width:calc(100% - 80px)}
-.rpg-choices{display:flex;gap:10px;flex-wrap:wrap}.rpg-help{font-size:13px;opacity:.85;line-height:1.7}.rpg-modal p{white-space:pre-line}
 `;
 
 /** A complete application shell; generated code supplies content and art hooks. */
@@ -30,45 +20,55 @@ export async function createRpgGame(config) {
   const root = document.createElement("div"); root.className = "rpg";
   // Generated themes stay unlayered so their author styles outrank these defaults.
   const style = document.createElement("style"); style.textContent = `@layer rpg-base { ${css} }`; root.append(style); host.append(root);
-  const ui = document.createElement("div"); ui.className = "rpg-ui";
-  const node = (tag, className, parent = ui) => { const n = document.createElement(tag); n.className = className; parent.append(n); return n; };
-  const status = node("div", "rpg-status rpg-panel");
-  const healthUI = node("div", "rpg-health", status), targetUI = node("div", "rpg-target", status);
-  const objectivesUI = node("div", "rpg-objectives rpg-panel"), actionsUI = node("div", "rpg-actions"), noticeUI = node("div", "rpg-notice");
-  const modal = node("div", "rpg-modal"), panel = node("div", "rpg-panel", modal);
-  const titleUI = node("h2", "", panel), textUI = node("p", "", panel), choicesUI = node("div", "rpg-choices", panel), helpUI = node("p", "rpg-help", panel);
+  const ui = document.createElement("div");
+  Object.assign(ui.style, { position: "absolute", inset: "0", pointerEvents: "none" });
   root.append(ui);
   let renderer, world, player, session, disposed = false, selected = null, dialogue = null, time = 0, uiTime = 0, lastTime = null;
-  let health = config.player?.health ?? 100, noticeUntil = 0, dialogueSerial = 0;
+  let health = config.player?.health ?? 100, noticeUntil = 0, dialogueSerial = 0, noticeText = "";
+  let presentation, loading = true, loadError = null, previousPhase, restartPromise;
   const listeners = [], assets = new Map(), actors = new Map(), mixers = [], cooldowns = new Map(), cleanups = [];
   const scene = new THREE.Scene(), camera = new THREE.PerspectiveCamera(config.visuals?.fov ?? 60, 1, .1, config.visuals?.far ?? 700);
   const spawn = config.player?.feet ?? [0, 1, 0];
   function listen(target, type, handler) { target.addEventListener(type, handler); listeners.push(() => target.removeEventListener(type, handler)); }
-  function button(label, callback, parent = choicesUI) { const b = node("button", "", parent); b.type = "button"; b.textContent = label; b.onmousedown = event => event.preventDefault();
-    const refocus = () => { if (!disposed && session?.playing) renderer.domElement.focus({ preventScroll: true }); };
-    b.onclick = () => { try { const result = callback(); if (result?.then) result.catch(failure).finally(refocus); else refocus(); } catch (error) { failure(error); refocus(); } }; return b; }
-  function notice(message) { noticeUI.textContent = String(message); noticeUntil = time + 4; }
-  function failure(error) { console.error(error); notice(error.message ?? error); }
-  function view(title, text, choices, help = false) {
-    modal.hidden = false; titleUI.textContent = title; textUI.textContent = text; choicesUI.replaceChildren();
-    helpUI.textContent = help ? RPG_BINDINGS.map(b => `${b.label}: ${b.description}`).join(" · ") : "";
-    for (const [label, action] of choices) button(label, action);
+  function refocus() { if (!disposed && session?.playing) renderer.domElement.focus({ preventScroll: true }); }
+  function bindAction(element, callback) {
+    element.style.pointerEvents = "auto";
+    let pending = false;
+    element.addEventListener("click", async event => {
+      event.preventDefault(); event.stopPropagation();
+      if (disposed || pending) return;
+      pending = true;
+      try { await callback(event); } catch (error) { failure(error); }
+      finally { pending = false; refocus(); }
+    });
+    return element;
   }
+  function notice(message) { noticeText = String(message); noticeUntil = time + 4; refresh(); }
+  function failure(error) { console.error(error); notice(error.message ?? error); }
   function refresh() {
-    if (!session) return;
-    healthUI.textContent = `${config.title ?? "Adventure"} · ${Math.ceil(health)}/${config.player?.health ?? 100} HP · ${progress.currency} coins`;
+    if (!presentation || disposed) return;
+    const reasons = session?.reasons ?? ["ready"];
+    const phase = loadError ? "error" : loading ? "loading" : reasons.includes("dead") ? "dead"
+      : dialogue ? "dialogue" : reasons.includes("ready") ? "ready" : session.playing ? "playing" : "paused";
     const target = actors.get(selected);
-    targetUI.textContent = target && !target.dead ? `${target.def.name ?? target.def.id}${target.def.enemy ? ` · ${Math.ceil(target.health)} HP` : ""} · F interact` : "Click a character or object to select";
-    objectivesUI.textContent = progress.quests.filter(q => ["active", "completed"].includes(q.state)).map(q => `${q.title ?? q.id}${q.state === "completed" ? " — return for reward" : ""}\n${q.objectives.map((o, i) => `${o.label ?? o.type}: ${q.progress[i]}/${o.count ?? 1}`).join("\n")}`).join("\n\n");
-    objectivesUI.hidden = !objectivesUI.textContent;
-    if (dialogue) return;
-    if (session.playing) { modal.hidden = true; return; }
-    if (session.reasons.includes("dead")) view("Defeated", config.deathText ?? "Return to your checkpoint and try again.", [["Respawn", respawn], ["Restart", restart]]);
-    else if (session.reasons.includes("ready")) view(config.title ?? "Adventure", config.description ?? "Explore, meet characters and discover the world.", [["Play", play]], true);
-    else view("Paused", "Resume when you are ready.", [["Resume", play], ["Restart", restart]], true);
+    presentation.update({ phase, reasons, title: config.title ?? "Adventure", description: config.description ?? "",
+      health, maxHealth: config.player?.health ?? 100, currency: progress.currency, quests: progress.quests,
+      target: target && !target.dead ? { id: selected, name: target.def.name ?? selected, enemy: !!target.def.enemy, health: target.health } : null,
+      abilities: (config.abilities ?? []).map((ability, slot) => ({ name: ability.name, slot, key: RPG_BINDINGS.find(b => b.slot === slot)?.label, remaining: Math.max(0, (cooldowns.get(slot) ?? 0) - time) })),
+      bindings: RPG_BINDINGS, notice: noticeText, error: loadError, deathText: config.deathText ?? "",
+      dialogue: dialogue && { id: dialogue.id, title: dialogue.title, text: dialogue.text, busy: dialogue.busy,
+        choices: dialogue.choices.map((choice, index) => ({ id: `${dialogue.id}:${index}`, label: choice.label })) },
+    });
+    if (phase !== previousPhase && phase !== "playing") {
+      if (presentation.focus) presentation.focus(phase);
+      else [...ui.querySelectorAll("button,[href],input,select,textarea,[tabindex='0']")]
+        .find(element => !element.disabled && element.getClientRects().length)?.focus();
+    }
+    previousPhase = phase;
   }
   const progress = createRpgProgress(config.quests, { changed: () => { refresh(); config.onProgress?.(api); } });
   function play() {
+    if (disposed || loading || loadError) return;
     for (const reason of ["ready", "pause", "focus"]) session.release(reason);
     for (const value of assets.values()) if (value instanceof HTMLAudioElement) value.load();
   }
@@ -76,21 +76,22 @@ export async function createRpgGame(config) {
     dialogueSerial++; dialogue = null; session.release("dialogue"); refresh();
   }
   function showDialogue(definition) {
-    if (session.reasons.includes("dead")) return;
-    dialogue = definition; const serial = ++dialogueSerial;
+    if (disposed || session.reasons.includes("dead")) return;
+    dialogue = { ...definition, id: ++dialogueSerial, title: definition.title ?? "Conversation", text: definition.text ?? "", choices: definition.choices ?? [], busy: false };
     session.hold("dialogue");
-    const choices = (definition.choices ?? []).map(choice => [choice.label, async () => {
-      if (serial !== dialogueSerial) return;
-      dialogueSerial++; for (const b of choicesUI.querySelectorAll("button")) b.disabled = true;
-      try {
-        if (choice.accept) progress.accept(choice.accept);
-        if (choice.claim) progress.claim(choice.claim);
-        await choice.action?.(api);
-      } catch (error) { failure(error); }
-      finally { if (dialogueSerial === serial + 1) closeDialogue(); }
-    }]);
-    view(definition.title ?? "Conversation", definition.text ?? "", [...choices, ["Close", closeDialogue]]);
-    choicesUI.querySelector("button")?.focus();
+    refresh();
+  }
+  async function chooseDialogue(id) {
+    if (disposed || !dialogue || dialogue.busy) return;
+    const current = dialogue, choice = current.choices.find((_, i) => id === `${current.id}:${i}`);
+    if (!choice) return;
+    current.busy = true; refresh();
+    try {
+      if (choice.accept) progress.accept(choice.accept);
+      if (choice.claim) progress.claim(choice.claim);
+      await choice.action?.(api);
+    } catch (error) { failure(error); }
+    finally { if (!disposed && dialogue === current) closeDialogue(); }
   }
   function select(id) {
     if (id !== null && !actors.has(id)) throw new Error(`Unknown target ${id}.`);
@@ -152,7 +153,7 @@ export async function createRpgGame(config) {
     for (const actor of actors.values()) if (actor.npc && !actor.dead) { actor.npc.teleport(actor.home.toArray()); actor.npc.setVelocity([0, 0, 0]); actor.health = actor.def.health ?? 30; }
     session.release("dead"); session.hold("pause"); refresh();
   }
-  async function restart() { dispose(); return createRpgGame(config); }
+  function restart() { if (!restartPromise) { dispose(); restartPromise = createRpgGame(config); } return restartPromise; }
   function model(id) {
     const value = assets.get(id); if (!value?.scene) throw new Error(`Missing model asset: ${id}`);
     return cloneSkeleton(value.scene);
@@ -169,6 +170,7 @@ export async function createRpgGame(config) {
   function dispose() {
     if (disposed) return; disposed = true;
     renderer?.setAnimationLoop(null); session?.dispose(); world?.dispose();
+    presentation?.dispose?.();
     for (const cleanup of [...listeners, ...cleanups]) cleanup();
     const resources = new Set();
     scene.traverse(n => { if (n.geometry) resources.add(n.geometry); for (const m of Array.isArray(n.material) ? n.material : n.material ? [n.material] : []) { resources.add(m); for (const v of Object.values(m)) if (v?.isTexture) resources.add(v); } });
@@ -179,8 +181,13 @@ export async function createRpgGame(config) {
     get player() { return player; }, get world() { return world; }, get renderer() { return renderer; }, get session() { return session; }, get selected() { return selected; }, get health() { return health; },
     onDispose: fn => cleanups.push(fn),
   };
-  view("Loading", "Preparing your adventure…", []);
   try {
+    const actions = Object.freeze({ play, pause: () => session?.hold("pause"), restart, respawn, interact, attack, closeDialogue, chooseDialogue });
+    presentation = config.createUI({ root: ui, game: api, actions, bindAction });
+    if (!presentation || typeof presentation.update !== "function") throw new Error("createUI must return {update(state), dispose?()}.");
+    // UI key presses must not become movement/ability input. Escape still closes or pauses.
+    listen(ui, "keydown", event => { if (event.code !== "Escape") event.stopPropagation(); });
+    refresh();
     renderer = new THREE.WebGLRenderer({ antialias: true }); renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
     renderer.shadowMap.enabled = config.visuals?.shadows !== false; renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     renderer.toneMapping = THREE.ACESFilmicToneMapping; renderer.toneMappingExposure = config.visuals?.exposure ?? 1;
@@ -257,8 +264,6 @@ export async function createRpgGame(config) {
       if (event.code === "KeyF") { event.preventDefault(); interact(); }
       const action = RPG_BINDINGS.find(b => b.code === event.code && b.slot !== undefined); if (action) { event.preventDefault(); attack(action.slot); }
     });
-    button("F · Interact", interact, actionsUI);
-    for (const binding of RPG_BINDINGS.filter(b => b.slot !== undefined)) if (config.abilities?.[binding.slot]) button(`${binding.label} · ${config.abilities[binding.slot].name}`, () => attack(binding.slot), actionsUI);
     const zones = new Set();
     function step(dt) {
       for (const actor of actors.values()) {
@@ -298,14 +303,14 @@ export async function createRpgGame(config) {
           const next = !item.actor.grounded ? "jump" : speed > .1 ? "walk" : "idle";
           if (next !== item.current && item.actions[next]) { item.actions[item.current]?.fadeOut(.15); item.actions[next].reset().fadeIn(.15).play(); item.current = next; } item.mixer.update(dt);
         }
-        if (noticeUntil && time > noticeUntil) { noticeUI.textContent = ""; noticeUntil = 0; }
+        if (noticeUntil && time > noticeUntil) { noticeText = ""; noticeUntil = 0; }
       }
       uiTime += dt; if (uiTime > .1) { refresh(); uiTime = 0; }
       renderer.render(scene, camera);
     });
-    refresh(); config.onReady?.(api); return api;
+    loading = false; refresh(); config.onReady?.(api); return api;
   } catch (error) {
     renderer?.setAnimationLoop(null); session?.dispose();
-    view("Unable to start", error.message ?? String(error), [["Retry", restart]]); throw error;
+    loadError = error.message ?? String(error); loading = false; refresh(); throw error;
   }
 }
