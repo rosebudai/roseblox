@@ -85,3 +85,20 @@ test("instanced and morphed static props snapshot their visible transforms witho
   assert.deepEqual(morphed.geometry.attributes.position.array, original);
   assert.equal(scene.children.length, 2);
 });
+
+test("a posed imported-style skinned prop collides at its current visible pose", async t => {
+  const { scene, world, scenery } = await setup(t);
+  const geometry = new THREE.BoxGeometry(1, 2, 1), count = geometry.attributes.position.count;
+  geometry.setAttribute("skinIndex", new THREE.Uint16BufferAttribute(new Uint16Array(count * 4), 4));
+  const weights = new Float32Array(count * 4);
+  for (let i = 0; i < count; i++) weights[i * 4] = 1;
+  geometry.setAttribute("skinWeight", new THREE.Float32BufferAttribute(weights, 4));
+  const model = new THREE.Group(), bone = new THREE.Bone(), skin = new THREE.SkinnedMesh(geometry, new THREE.MeshBasicMaterial());
+  model.add(bone, skin); model.updateMatrixWorld(true);
+  const skeleton = new THREE.Skeleton([bone]); skin.bind(skeleton); t.after(() => skeleton.dispose());
+  model.position.set(8, 1, -4); bone.position.x = 2; scene.add(model);
+  scenery.finalize();
+  assert.equal(world.castRay([8, 1, -2], [0, 0, -1], { maxDistance: 4 }), null);
+  assert.ok(world.castRay([10, 1, -2], [0, 0, -1], { maxDistance: 4 }));
+  assert.equal(skin.parent, model); assert.equal(bone.position.x, 2);
+});

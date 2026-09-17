@@ -56,6 +56,12 @@ export function createRpgScenery(scene, physics) {
     if (object.isMesh) registerMesh(object);
     for (const child of object.children) register(child);
   }
+  function registerPose(object) {
+    object.updateWorldMatrix(true, false);
+    // updateMatrixWorld also refreshes skinned-model bind transforms and bones.
+    object.updateMatrixWorld(true);
+    register(object);
+  }
   function addProp(object, options = {}) {
     if (options.collider !== undefined && typeof options.collider !== "boolean") throw new Error("Prop collider must be true or false.");
     if (options.position) object.position.fromArray(options.position);
@@ -65,7 +71,7 @@ export function createRpgScenery(scene, physics) {
     scene.add(object);
     object.traverse(node => { if (node.isMesh) { node.castShadow = true; node.receiveShadow = true; } });
     removeColliders(object);
-    if (object.userData.rpgCollider !== false) register(object);
+    if (object.userData.rpgCollider !== false) registerPose(object);
     return object;
   }
   return {
@@ -75,6 +81,6 @@ export function createRpgScenery(scene, physics) {
     removeProp(object) { removeColliders(object); object.removeFromParent(); },
     // Capture direct scene.add calls once, after authored transforms have settled.
     // Actors are created later; particles and lights are not collision meshes.
-    finalize: () => register(scene),
+    finalize: () => registerPose(scene),
   };
 }
