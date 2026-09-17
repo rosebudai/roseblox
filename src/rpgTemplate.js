@@ -4,8 +4,9 @@ import { clone as cloneSkeleton } from "three/addons/utils/SkeletonUtils.js";
 import { createRpgWorld, fitRpgModel, queryMeleeTargets } from "./rpg.js";
 import { createRpgSession, createRpgProgress } from "./rpgSession.js";
 import { RPG_BINDINGS, RPG_MOVEMENT_DEFAULTS } from "./rpgProfile.js";
+import { bindRpgUI } from "./rpgUI.js";
 
-export const RPG_TEMPLATE_VERSION = "0.3.1-experiment";
+export const RPG_TEMPLATE_VERSION = "0.3.2-experiment";
 export { RPG_BINDINGS, createRpgSession, createRpgProgress };
 
 const css = `
@@ -243,7 +244,8 @@ export async function createRpgGame(config) {
   };
   try {
     const actions = Object.freeze({ play, pause: () => session?.hold("pause"), restart, respawn, interact, attack, closeDialogue, chooseDialogue });
-    presentation = config.createUI({ root: ui, game: api, actions, bindAction, createControlsLegend });
+    const uiContext = { root: ui, game: api, actions, bindAction, createControlsLegend };
+    presentation = config.createUI({ ...uiContext, bindUI: options => bindRpgUI(uiContext, options) });
     if (!presentation || typeof presentation.update !== "function") throw new Error("createUI must return {update(state), dispose?()}.");
     // UI key presses must not become movement/ability input. Escape still closes or pauses.
     listen(ui, "keydown", event => { if (event.code !== "Escape") event.stopPropagation(); });

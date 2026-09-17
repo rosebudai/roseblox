@@ -1,4 +1,4 @@
-# Open-world RPG template · 0.3.1-experiment
+# Open-world RPG template · 0.3.2-experiment
 
 This project already contains a playable application foundation. Author `/game/assets.js`, `/game/world.js`, `/game/content.js`, `/game/ui.js` and `/game/theme.css`. Keep index.html's existing main.js entry. `/main.js` and `/rosie/rpg/*` are managed, versioned files; file tools protect them. You do not need to read the runtime source.
 
@@ -26,13 +26,35 @@ Your world and presentation remain freely authored: use normal generated skyboxe
 - `checkpoint:[x,y,z]` (default initial spawn), `rescueY:-30`, `deathText`. Respawn restores health and keeps quest/inventory progress; Restart resets the entire adventure.
 - Hooks: `onReady(game)`, `update(dt,game)` for custom effects/unique rules (called on fixed simulation steps while playing), `onProgress(game)`, `onSelect(id,game)`. Do not create another render loop. `game.onDispose(cleanup)` registers cleanup for custom resources/listeners. `game.notice(text)` shows feedback; `game.progress.quests` is an array of snapshots `{...questDefinition,state:'available'|'active'|'completed'|'claimed',progress:number[]}`; find a quest by its `id` and inspect `state`. `game.progress` also exposes `currency`, `count(item)`, `collect(item,count)`, `accept(id)`, `claim(id)`, `event(type,target,count)` for extensions. `game.actors.get(id)` exposes `{root,body,npc,health,dead,def}`. Avoid recursive onProgress mutations.
 
-`ui.js` exports `createUI({root, game, actions, bindAction, createControlsLegend})` returning `{update(state), focus?(phase), dispose?()}`. Replace the editable starter with an interface designed for this adventure: choose your own markup, layout, artwork, typography and effects. `theme.css` is fully yours; the runtime only sizes the canvas and UI mount, with no HUD/menu/dialogue styles. `root` is a full-screen overlay with pointer-events:none; enable pointer events for interactive regions. Do not block the canvas with an invisible full-screen element while playing.
+`ui.js` exports `createUI({root, bindUI, game, actions, bindAction, createControlsLegend})`. Author your own HTML and CSS, then prefer `return bindUI()` to connect it to state. The helper supplies no markup, layout, colors or typography. Keep the HUD compact, reuse styles, and put detail in context instead of adding permanent panels. `theme.css` is fully yours; the canvas remains the main visual. The root has pointer-events:none; enable pointer events on interactive regions and avoid an invisible full-screen input blocker while playing.
 
-- `update(state)` runs when state changes and about 10 times/second. Build elements once and update values; preserve focus and pressed buttons between updates. `dispose()` releases your custom resources/listeners. `game` provides the same read/content API as world hooks.
-- State: `phase` is loading, error, ready, playing, paused, dialogue or dead; `reasons` lists suspension causes. Also `title`, `description`, `health`, `maxHealth`, `currency`, `quests` (same snapshots as game.progress), `target` (null or `{id,name,enemy,health,maxHealth,healthFraction}`), `abilities` (`{name,key,remaining,activate}`), `bindings`, `notice`, `error`, `deathText`. `combatTargets` lists recently hit living enemies for five simulation seconds, with the same health fields. Show their health automatically without requiring selection. `target` also reveals a recently hit enemy for single-target health displays, falling back to click selection outside combat; attacks never depend on selection. Target `healthFraction` is 0–1; set a meter's max/value from maxHealth/health or a bar width to `100 * healthFraction` percent. Show health, progress, interaction feedback and ability cooldowns in your presentation.
-- `interaction` is null or `{id,name,action}` for the nearest reachable usable target while playing. Show a contextual F prompt using these fields; do not gate interaction on `target` or click selection. `actions.interact()` rechecks proximity when invoked.
-- `dialogue` is null or `{id,title,text,busy,choices:[{id,label}]}`. Render its choices and a close action. Bind the displayed choice id, not its label/index; the runtime rejects stale choices and double submissions. Reflect `busy` by disabling choices. Async choices and exceptions restore controls safely without clearing unrelated pause/focus/death state.
-- Actions: `play()` starts/resumes; `pause()`, `restart()`, `respawn()`, `interact()`, `closeDialogue()`, `chooseDialogue(choiceId)`. Bind ability buttons with `bindAction(button, ability.activate)`; this is the same action as its displayed keyboard key, with no index conversion. Provide loading/error/retry, start, pause/resume, dialogue and death/respawn/restart actions. Use semantic buttons.
-- `bindAction(element, callback)` wires click activation, prevents duplicate pending activation, enables pointer events, catches action errors and restores canvas focus when playing. Example: `bindAction(button, () => actions.chooseDialogue(choice.id))`. Use it for game-facing UI actions. Do not implement pause via player.stop/start. Keyboard events inside the UI do not become movement/ability input; Escape remains available to close/pause.
-- `focus(phase)` returns the visible, enabled DOM element the runtime should focus; e.g. `return resumeButton`. Without a destination it chooses an available UI control. Focus returns to the canvas while playing. Preserve live controls between updates.
-- Append `createControlsLegend()` to your menu/help area and style/place it freely. It returns an unstyled semantic `<dl>` from the actual bindings, including A/D turn, Q/E strafe, RMB behavior and your configured ability names. Keep this authoritative legend accessible instead of rewriting control labels.
+## UI bindings
+
+Use these attributes on your authored elements. Paths are dot-separated property names, not expressions. Text is escaped automatically. Bindings update values in place; list rows retain their buttons and focus.
+
+- `data-rpg-text="path"` sets a leaf element's text. `data-rpg-show="path"` shows it when the value is truthy, including correctly hiding flex/grid containers.
+- `data-rpg-value="health"` / `data-rpg-max="maxHealth"` set a native meter. `data-rpg-fill="healthFraction"` sets a custom bar's width from a 0–1 fraction. `data-rpg-disabled="path"` sets a button's disabled state.
+- `data-rpg-action="actions.pause"` binds an action through the runtime's pending/error/focus safeguards. `data-rpg-controls` inserts the actual unstyled controls legend; place/style it in your menu or help.
+- `data-rpg-list="path"` repeats its direct child `<template>`, which must contain one root element. Inside the template, binding paths refer to the item. Nested lists work. Rows use `id` as their stable key. Do not implement your own repeated DOM replacement or click wiring for these bindings.
+
+The bound view includes the ordinary state below plus:
+- `healthText`, `healthFraction`, `playing`, `menu` (ready/paused), `interactionText` (contextual F prompt, empty when no nearby usable target).
+- `questLog`: active/completed quests with `title`, `completed` and `objectives:[{id,text,progress,goal,completed}]`. Render objective text/progress, not only quest titles.
+- `abilities`: `{id,key,name,remaining,cooldownText,disabled,action}`. Bind buttons to `action`; this matches the keyboard slot directly.
+- `combatTargets`: recently hit living enemies `{id,name,health,maxHealth,healthFraction}`. Show these health bars without requiring selection.
+- `panel`: null while playing; otherwise `{title,body,actions:[{id,label,action,disabled}]}` for loading, errors/retry, start, pause/resume, dialogue/choices/close and death/respawn/restart. One authored presentation can cover these states without writing a phase switch. Render `panel.actions` so lifecycle actions remain available.
+- `actions`: `play`, `pause`, `restart`, `respawn`, `interact`, `closeDialogue`, `chooseDialogue`. Interaction always rechecks proximity, never requires selection.
+
+For example, an authored dialogue/menu region can contain:
+```html
+<section data-rpg-show="panel">
+  <h1 data-rpg-text="panel.title"></h1><p data-rpg-text="panel.body"></p>
+  <nav data-rpg-list="panel.actions"><template>
+    <button data-rpg-text="label" data-rpg-action="action" data-rpg-disabled="disabled"></button>
+  </template></nav>
+</section>
+```
+
+Customize wording with `bindUI({labels:{play:'Begin adventure',resume:'Return',loading:'Loading…'}})`. Other label keys: error, retry, dead, respawn, restart, close. `extend(state,view)` may return extra view fields for unique UI or custom callbacks; it need not rebuild the standard fields. Use normal CSS and your own HTML for icons, artwork, layout and effects. Keep the authoritative controls legend available.
+
+Advanced custom presentation remains supported: return `{update(state),focus?(phase),dispose?()}` instead of using bindUI. Raw state has `phase` (loading/error/ready/playing/paused/dialogue/dead), `title`, `description`, `health`, `maxHealth`, `currency`, `notice`, `error`, `deathText`, `quests` (progress snapshots), `interaction` (null or `{id,name,action}`), `target`, `combatTargets`, `abilities`, `bindings` and `dialogue` (null or `{id,title,text,busy,choices:[{id,label}]}`). Raw abilities use `activate`; bound abilities use `action`. Bind custom buttons with `bindAction(element,callback)`, preserve them between updates (~10 Hz), and return a visible enabled focus element if needed. The runtime owns all pause/focus/dialogue transitions; never call player.stop/start for UI. Dispose custom resources through `game.onDispose(cleanup)`.

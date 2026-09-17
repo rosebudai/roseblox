@@ -1,52 +1,24 @@
-// Replace this editable starter with a presentation designed for your adventure.
-export function createUI({ root, actions, bindAction, createControlsLegend }) {
-  const summary = document.createElement('output');
-  const view = document.createElement('section');
-  const controls = createControlsLegend();
-  const enemyHealth = document.createElement('section'); enemyHealth.setAttribute('aria-label', 'Enemy health');
-  const healthBars = new Map();
-  root.append(summary, view, controls, enemyHealth);
-  let screen = '';
-  function button(label, action, disabled = false) {
-    const el = document.createElement('button');
-    el.type = 'button'; el.textContent = label; el.disabled = disabled;
-    view.append(bindAction(el, action));
-  }
-  return {
-    update(state) {
-      summary.textContent = `${state.title} · ${Math.ceil(state.health)}/${state.maxHealth} HP · ${state.currency} coins\n${state.notice}`;
-      controls.hidden = !['ready', 'paused'].includes(state.phase);
-      const damaged = new Set(state.combatTargets.map(t => t.id));
-      for (const [id, row] of healthBars) if (!damaged.has(id)) { row.remove(); healthBars.delete(id); }
-      for (const t of state.combatTargets) {
-        let row = healthBars.get(t.id);
-        if (!row) { row = document.createElement('label'); row.append(document.createElement('span'), document.createElement('meter')); enemyHealth.append(row); healthBars.set(t.id, row); }
-        row.firstChild.textContent = t.name; row.lastChild.max = t.maxHealth; row.lastChild.value = t.health;
-      }
-      // Preserve interactive elements between updates so focus and clicks survive.
-      const key = JSON.stringify([state.phase, state.dialogue, state.error, state.quests, state.target, state.interaction]);
-      if (key === screen) return;
-      screen = key; view.replaceChildren();
-      const text = document.createElement('p'); view.append(text);
-      if (state.phase === 'playing') {
-        text.textContent = state.quests.filter(q => ['active','completed'].includes(q.state)).map(q => `${q.title}: ${q.state}`).join('\n');
-        button(state.interaction ? `F · ${state.interaction.action} ${state.interaction.name}` : 'Interact', actions.interact, !state.interaction);
-        for (const a of state.abilities) button(`${a.key} · ${a.name}`, a.activate);
-        button('Pause', actions.pause);
-      } else if (state.phase === 'dialogue') {
-        text.textContent = `${state.dialogue.title}\n${state.dialogue.text}`;
-        for (const c of state.dialogue.choices) button(c.label, () => actions.chooseDialogue(c.id), state.dialogue.busy);
-        button('Close', actions.closeDialogue);
-      } else if (state.phase === 'loading') text.textContent = 'Loading…';
-      else if (state.phase === 'error') { text.textContent = state.error; button('Retry', actions.restart); }
-      else if (state.phase === 'dead') { text.textContent = state.deathText || 'Defeated'; button('Respawn', actions.respawn); button('Restart', actions.restart); }
-      else {
-        text.textContent = state.description;
-        button(state.phase === 'ready' ? 'Play' : 'Resume', actions.play);
-        if (state.phase === 'paused') button('Restart', actions.restart);
-      }
-    },
-    focus() { return view.querySelector('button:not(:disabled)'); },
-    dispose() { root.replaceChildren(); },
-  };
+// Design the markup and theme for this adventure; bindings supply the shared updates.
+export function createUI({ root, bindUI }) {
+  root.innerHTML = `
+    <header><span data-rpg-text="healthText"></span> HP · <span data-rpg-text="currency"></span></header>
+    <aside data-rpg-list="questLog"><template><article>
+      <h3 data-rpg-text="title"></h3>
+      <ul data-rpg-list="objectives"><template><li data-rpg-text="text"></li></template></ul>
+    </article></template></aside>
+    <section data-rpg-list="combatTargets"><template><label>
+      <span data-rpg-text="name"></span><meter data-rpg-max="maxHealth" data-rpg-value="health"></meter>
+    </label></template></section>
+    <p data-rpg-text="notice"></p><p data-rpg-text="interactionText"></p>
+    <nav data-rpg-show="playing" data-rpg-list="abilities"><template>
+      <button data-rpg-action="action" data-rpg-disabled="disabled"><kbd data-rpg-text="key"></kbd>
+        <span data-rpg-text="name"></span><small data-rpg-text="cooldownText"></small></button>
+    </template></nav>
+    <section data-rpg-show="panel"><h1 data-rpg-text="panel.title"></h1><p data-rpg-text="panel.body"></p>
+      <nav data-rpg-list="panel.actions"><template>
+        <button data-rpg-text="label" data-rpg-action="action" data-rpg-disabled="disabled"></button>
+      </template></nav>
+      <div data-rpg-show="menu" data-rpg-controls></div>
+    </section>`;
+  return bindUI();
 }
