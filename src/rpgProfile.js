@@ -9,7 +9,7 @@ export const RPG_BINDINGS = Object.freeze([
   { label: "Wheel", description: "Zoom" },
   { label: "Space", description: "Jump" },
   { label: "Shift", description: "Run" },
-  { label: "F", description: "Interact", code: "KeyF" },
+  { label: "F", description: "Interact nearby", code: "KeyF" },
   { label: "1", description: "First ability", code: "Digit1", slot: 0 },
   { label: "2", description: "Second ability", code: "Digit2", slot: 1 },
   { label: "3", description: "Third ability", code: "Digit3", slot: 2 },

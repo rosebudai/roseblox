@@ -17,7 +17,7 @@ export function createUI({root, actions, bindAction, createControlsLegend}) {
       window.fixtureState=s;
       title.textContent=s.title; health.max=s.maxHealth; health.value=s.health;
       stats.textContent=`${Math.ceil(s.health)} HP · ${s.currency} coins`;
-      target.textContent=s.target?`${s.target.name} · F interact`:'Click to select'; notice.textContent=s.notice;
+      target.textContent=s.interaction?`F · ${s.interaction.action} ${s.interaction.name}`:'Move near someone or something to interact'; notice.textContent=s.notice;
       targetHealth.hidden=!s.target?.enemy; targetHealth.max=1; targetHealth.value=s.target?.healthFraction??0;
       quests.textContent=s.quests.map(q=>`${q.title} · ${q.state}\n${q.progress.join(' / ')}`).join('\n');
       if(!initialized){

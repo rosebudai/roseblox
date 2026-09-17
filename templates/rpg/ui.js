@@ -24,13 +24,13 @@ export function createUI({ root, actions, bindAction, createControlsLegend }) {
         row.firstChild.textContent = t.name; row.lastChild.max = t.maxHealth; row.lastChild.value = t.health;
       }
       // Preserve interactive elements between updates so focus and clicks survive.
-      const key = JSON.stringify([state.phase, state.dialogue, state.error, state.quests, state.target]);
+      const key = JSON.stringify([state.phase, state.dialogue, state.error, state.quests, state.target, state.interaction]);
       if (key === screen) return;
       screen = key; view.replaceChildren();
       const text = document.createElement('p'); view.append(text);
       if (state.phase === 'playing') {
         text.textContent = state.quests.filter(q => ['active','completed'].includes(q.state)).map(q => `${q.title}: ${q.state}`).join('\n');
-        button('Interact', actions.interact);
+        button(state.interaction ? `F · ${state.interaction.action} ${state.interaction.name}` : 'Interact', actions.interact, !state.interaction);
         for (const a of state.abilities) button(`${a.key} · ${a.name}`, a.activate);
         button('Pause', actions.pause);
       } else if (state.phase === 'dialogue') {

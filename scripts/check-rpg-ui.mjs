@@ -31,14 +31,15 @@ try {
     await click('Pause'); await phase('paused');
     assert.equal(await page.getByRole('button',{name:'Resume',exact:true}).evaluate(el=>el===document.activeElement),true);
     await click('Resume'); await phase('playing');
-    await page.evaluate(()=>window.fixture.select('guide')); await click('Interact'); await phase('dialogue');
+    await page.evaluate(()=>window.fixture.player.teleport([-1.6,.1,.3])); await click('Interact'); await phase('dialogue');
     await click('Test error cleanup'); await phase('playing');
     await click('Interact'); await phase('dialogue'); await click('Accept: Recover token'); await phase('playing');
-    await page.evaluate(()=>window.fixture.select('token')); await click('Interact');
+    await page.evaluate(()=>window.fixture.player.teleport([1.6,.1,.3])); await click('Interact');
     assert.equal(await page.evaluate(()=>window.fixture.progress.count('token')),1);
-    await page.evaluate(()=>window.fixture.select('guide')); await click('Interact'); await phase('dialogue');
+    await page.evaluate(()=>window.fixture.player.teleport([-1.6,.1,.3])); await click('Interact'); await phase('dialogue');
     await click('Claim: Recover token'); await phase('playing');
     assert.equal(await page.evaluate(()=>window.fixture.progress.currency),5);
+    assert.equal(await page.evaluate(()=>window.fixture.selected),null);
     await click('Interact'); await phase('dialogue');
     await page.evaluate(()=>window.dispatchEvent(new Event('blur'))); await click('Close'); await phase('paused');
     await click('Resume'); await phase('playing');

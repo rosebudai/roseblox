@@ -5,7 +5,7 @@ import { createRpgWorld, fitRpgModel, queryMeleeTargets } from "./rpg.js";
 import { createRpgSession, createRpgProgress } from "./rpgSession.js";
 import { RPG_BINDINGS, RPG_MOVEMENT_DEFAULTS } from "./rpgProfile.js";
 
-export const RPG_TEMPLATE_VERSION = "0.3.0-experiment";
+export const RPG_TEMPLATE_VERSION = "0.3.1-experiment";
 export { RPG_BINDINGS, createRpgSession, createRpgProgress };
 
 const css = `
@@ -27,6 +27,11 @@ export async function createRpgGame(config) {
   let health = config.player?.health ?? 100, noticeUntil = 0, dialogueSerial = 0, noticeText = "";
   let presentation, loading = true, loadError = null, previousFocusKey, restartPromise;
   const listeners = [], assets = new Map(), actors = new Map(), mixers = [], cooldowns = new Map(), cleanups = [], combatHealth = new Map();
+  const characterIds = new Set((config.characters ?? []).map(def => def.id));
+  const interactionIds = new Set([
+    ...characterIds,
+    ...(config.quests ?? []).flatMap(q => [q.giver, ...(q.objectives ?? []).filter(o => ["talk", "deliver"].includes(o.type)).map(o => o.target)]),
+  ]);
   const scene = new THREE.Scene(), camera = new THREE.PerspectiveCamera(config.visuals?.fov ?? 60, 1, .1, config.visuals?.far ?? 700);
   const spawn = config.player?.feet ?? [0, 1, 0];
   // Buttons and keyboard input share the same slot without UI-side index arithmetic.
@@ -73,9 +78,12 @@ export async function createRpgGame(config) {
       : dialogue ? "dialogue" : reasons.includes("ready") ? "ready" : session.playing ? "playing" : "paused";
     for (const [id, until] of combatHealth) if (until <= time || actors.get(id)?.dead) combatHealth.delete(id);
     const combatTargets = [...combatHealth.keys()].map(id => targetState(actors.get(id))).filter(Boolean);
+    const nearby = phase === "playing" ? nearestInteraction() : null;
     presentation.update({ phase, reasons, title: config.title ?? "Adventure", description: config.description ?? "",
       health, maxHealth: config.player?.health ?? 100, currency: progress.currency, quests: progress.quests,
       target: combatTargets.at(-1) ?? targetState(actors.get(selected)), combatTargets,
+      interaction: nearby && { id: nearby.def.id, name: nearby.def.name ?? nearby.def.id,
+        action: nearby.def.item ? "Collect" : characterIds.has(nearby.def.id) ? "Talk to" : "Interact with" },
       abilities: abilities.map(ability => ({ ...ability, remaining: Math.max(0, (cooldowns.get(ability.slot) ?? 0) - time) })),
       bindings: RPG_BINDINGS, notice: noticeText, error: loadError, deathText: config.deathText ?? "",
       dialogue: dialogue && { id: dialogue.id, title: dialogue.title, text: dialogue.text, busy: dialogue.busy,
@@ -135,11 +143,11 @@ export async function createRpgGame(config) {
   }
   function interact() {
     if (!session.playing) return;
-    const actor = actors.get(selected);
-    if (!reachable(actor, actor?.def.interactRange ?? 3)) { notice("Select a nearby target to interact."); return; }
+    const actor = nearestInteraction();
+    if (!actor) { notice("Move closer to someone or something you can interact with."); return; }
     const def = actor.def;
     progress.event("talk", def.id); progress.deliver(def.id);
-    if (def.item) { progress.collect(def.item, def.count ?? 1); actor.dead = true; actor.root.visible = false; actor.body?.remove(); select(null); notice(`Collected ${def.name ?? def.item}`); return; }
+    if (def.item) { progress.collect(def.item, def.count ?? 1); actor.dead = true; actor.root.visible = false; actor.body?.remove(); if (selected === def.id) select(null); notice(`Collected ${def.name ?? def.item}`); return; }
     if (def.onInteract) { try { def.onInteract(api); } catch (error) { failure(error); } return; }
     const content = typeof def.dialogue === "function" ? def.dialogue(api) : def.dialogue;
     const options = progress.quests.filter(q => q.giver === def.id && ["available", "completed"].includes(q.state) && (q.requires ?? []).every(id => progress.quests.find(other => other.id === id)?.state === "claimed"));
@@ -151,6 +159,18 @@ export async function createRpgGame(config) {
         : { label: `Accept: ${q.title ?? q.id}`, accept: q.id })],
     });
     else notice(def.description ?? def.name ?? def.id);
+  }
+  function nearestInteraction() {
+    if (!player) return null;
+    let nearest = null, distance = Infinity;
+    const position = player.position;
+    for (const actor of actors.values()) {
+      if (!actor.interactable || actor.def.enemy || actor.dead) continue;
+      const next = actor.position().distanceTo(position);
+      // Stable registration order breaks ties; selection never overrides proximity.
+      if (next < distance && reachable(actor, actor.def.interactRange ?? 3)) { nearest = actor; distance = next; }
+    }
+    return nearest;
   }
   function damage(amount) {
     if (!session.playing) return;
@@ -282,7 +302,8 @@ export async function createRpgGame(config) {
         body = world.addBody({ type: "fixed", position: home.clone().add(new THREE.Vector3(0, (def.height ?? 1.8) / 2, 0)).toArray(), shape: { type: "box", size: [def.width ?? .8, def.height ?? 1.8, def.width ?? .8] }, data: { rpgId: def.id } });
       }
       visual.traverse(n => { if (n.isMesh) { n.castShadow = true; n.receiveShadow = true; } }); scene.add(visual);
-      actors.set(def.id, { def, body, root: visual, npc, home, position: () => npc ? npc.position : home.clone(), health: def.health ?? 30, dead: false, nextAttack: 0, waypoint: 0 });
+      const interactable = def.interactable ?? !!(interactionIds.has(def.id) || def.item || def.dialogue || def.onInteract);
+      actors.set(def.id, { def, body, root: visual, npc, home, position: () => npc ? npc.position : home.clone(), health: def.health ?? 30, dead: false, interactable, nextAttack: 0, waypoint: 0 });
     }
     for (const q of progress.quests) {
       if (q.giver && !actors.has(q.giver)) throw new Error(`Quest ${q.id} has unknown giver ${q.giver}.`);
