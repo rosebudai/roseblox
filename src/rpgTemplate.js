@@ -5,7 +5,7 @@ import { createRpgWorld, fitRpgModel, queryMeleeTargets } from "./rpg.js";
 import { createRpgSession, createRpgProgress } from "./rpgSession.js";
 import { RPG_BINDINGS, RPG_MOVEMENT_DEFAULTS } from "./rpgProfile.js";
 
-export const RPG_TEMPLATE_VERSION = "0.2.1-experiment";
+export const RPG_TEMPLATE_VERSION = "0.3.0-experiment";
 export { RPG_BINDINGS, createRpgSession, createRpgProgress };
 
 const css = `

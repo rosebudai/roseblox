@@ -1,4 +1,4 @@
-# Open-world RPG template · 0.2.0-experiment
+# Open-world RPG template · 0.3.0-experiment
 
 This project already contains a playable application foundation. Author `/game/assets.js`, `/game/world.js`, `/game/content.js`, `/game/ui.js` and `/game/theme.css`. Keep index.html's existing main.js entry. `/main.js` and `/rosie/rpg/*` are managed, versioned files; file tools protect them. You do not need to read the runtime source.
 
