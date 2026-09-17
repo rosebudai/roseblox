@@ -3,7 +3,7 @@ export const RPG_BINDINGS = Object.freeze([
   { label: "A/D", description: "Turn (strafe while RMB held)" },
   { label: "Q/E", description: "Strafe" },
   { label: "RMB drag", description: "Camera and character" },
-  { label: "LMB", description: "Select target" },
+  { label: "LMB click / drag", description: "Select / orbit view" },
   { label: "Wheel", description: "Zoom" },
   { label: "Space", description: "Jump" },
   { label: "Shift", description: "Run" },

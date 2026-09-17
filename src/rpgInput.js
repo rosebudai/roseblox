@@ -1,5 +1,5 @@
-/** Free cursor selection and held-right-button orbit, without pointer lock. */
-export function createRpgControls({ canvas, enter, pause, look, select, resetInput }) {
+/** Free cursor selection, left orbit and right-button turning without pointer lock. */
+export function createRpgControls({ canvas, enter, pause, look, turn, select, resetInput }) {
   const doc = canvas.ownerDocument, win = doc.defaultView;
   const buttons = new Set(), listeners = [];
   let active = false, pointer = null, x = 0, y = 0, click = null;
@@ -19,15 +19,18 @@ export function createRpgControls({ canvas, enter, pause, look, select, resetInp
     pointer = event.pointerId; x = event.clientX; y = event.clientY;
     buttons.add(event.button);
     click = event.button === 0 && !buttons.has(2) ? { x, y } : null;
-    // Capture only an orbit drag, so a normal left click still has ordinary DOM behavior.
-    if (buttons.has(2)) { canvas.setPointerCapture?.(pointer); event.preventDefault(); }
+    if (buttons.has(2)) { turn(); canvas.setPointerCapture?.(pointer); event.preventDefault(); }
   }
   function move(event) {
     if (!active || pointer !== event.pointerId) return;
-    if (click && Math.hypot(event.clientX - click.x, event.clientY - click.y) > 5) click = null;
-    const dx = event.clientX - x, dy = event.clientY - y;
+    let dx = event.clientX - x, dy = event.clientY - y;
+    if (click) {
+      if (Math.hypot(event.clientX - click.x, event.clientY - click.y) <= 5) return;
+      dx = event.clientX - click.x; dy = event.clientY - click.y;
+      click = null; canvas.setPointerCapture?.(pointer);
+    }
     x = event.clientX; y = event.clientY;
-    if (buttons.has(2) && Number.isFinite(dx) && Number.isFinite(dy)) look(dx, dy);
+    if (buttons.size && Number.isFinite(dx) && Number.isFinite(dy)) look(dx, dy, buttons.has(2));
   }
   function up(event) {
     if (!active || pointer !== event.pointerId) return;
@@ -47,7 +50,7 @@ export function createRpgControls({ canvas, enter, pause, look, select, resetInp
     if (pointer !== event.pointerId) return;
     if (typeof event.buttons === "number") {
       if (event.buttons & 2) {
-        if (!buttons.has(2)) { x = event.clientX; y = event.clientY; click = null; canvas.setPointerCapture?.(pointer); }
+        if (!buttons.has(2)) { x = event.clientX; y = event.clientY; click = null; turn(); canvas.setPointerCapture?.(pointer); }
         buttons.add(2);
       } else buttons.delete(2);
       if (event.buttons & 1) buttons.add(0); else buttons.delete(0);
@@ -65,6 +68,7 @@ export function createRpgControls({ canvas, enter, pause, look, select, resetInp
   listen(doc, "visibilitychange", () => { if (doc.hidden) stop(); });
   return {
     get turning() { return active && buttons.has(2); },
+    get orbiting() { return active && buttons.has(0) && !buttons.has(2); },
     get walking() { return active && buttons.has(0) && buttons.has(2); },
     start() { reset(); active = true; enter(); },
     cancel: stop,

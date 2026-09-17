@@ -37,6 +37,7 @@ export function createThirdPersonCamera({ entry, config, input, castSegment, cas
   const cursor = canvas.style.cursor, savedUp = camera.up.clone();
   const target = new THREE.Vector3(), eye = new THREE.Vector3(), direction = new THREE.Vector3();
   let yaw = options.yaw, pitch = THREE.MathUtils.clamp(options.pitch, -1.3, 1.45);
+  let heading = yaw;
   let distance = THREE.MathUtils.clamp(options.distance, options.minDistance, options.maxDistance);
   let enabled = false, active = false, suspended = false;
   const mmo = options.controlMode === "mmo";
@@ -44,8 +45,10 @@ export function createThirdPersonCamera({ entry, config, input, castSegment, cas
     getState: () => active ? "playing" : enabled ? "paused" : "ready",
     enter: () => { active = true; canvas.style.cursor = mmo ? "default" : "none"; canvas.focus({ preventScroll: true }); },
     pause: () => { active = false; canvas.style.cursor = cursor; },
-    look: (dx, dy) => {
+    turn: () => { heading = yaw; },
+    look: (dx, dy, turnCharacter) => {
       yaw -= dx * options.sensitivity;
+      if (!mmo || turnCharacter) heading = yaw;
       // Positive elevation looks down at the target; upward mouse motion looks up.
       pitch = THREE.MathUtils.clamp(pitch + dy * options.sensitivity, -1.3, 1.45);
       controller.updateCamera();
@@ -69,7 +72,7 @@ export function createThirdPersonCamera({ entry, config, input, castSegment, cas
     get active() { return active; }, get enabled() { return enabled; },
     get locked() { return doc.pointerLockElement === canvas; },
     get facing() { return options.facing; },
-    direction(out) { return out.set(-Math.sin(yaw), 0, -Math.cos(yaw)); },
+    direction(out) { return out.set(-Math.sin(heading), 0, -Math.cos(heading)); },
     movement() {
       const move = input.getMovementVector();
       if (mmo && options.keyboardLayout === "classic" && mouse.turning) move.x += Number(input.isActionActive("turnRight")) - Number(input.isActionActive("turnLeft"));
@@ -87,7 +90,9 @@ export function createThirdPersonCamera({ entry, config, input, castSegment, cas
     updateInput(dt) {
       mouse.update(dt);
       if (mmo && active && !(options.keyboardLayout === "classic" && mouse.turning)) {
-        yaw += (Number(input.isActionActive("turnLeft")) - Number(input.isActionActive("turnRight"))) * options.turnSpeed * dt;
+        const turn = (Number(input.isActionActive("turnLeft")) - Number(input.isActionActive("turnRight"))) * options.turnSpeed * dt;
+        heading += turn;
+        if (!mouse.orbiting) yaw += turn;
       }
     },
     updateCamera() {
