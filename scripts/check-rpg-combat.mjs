@@ -53,5 +53,26 @@ try{
  assert.equal(await page.evaluate(()=>document.pointerLockElement===null),true);
  await page.screenshot({path:output+'/melee-camera.png'});assert.deepEqual(errors,[]);
  const result={passed:true,checks:['real LMB orbit','independent character heading','no selection required','damage reveals health','forward multiple hits','wall/rear/range filtering','cooldown','miss effects','NPC selection independent','dialogue input suspension','dead enemy cleanup','RMB alignment without view reset','mouse chord cleanup','no pointer lock'],errors};
+ await page.close();
+ const slow=await browser.newPage({viewport:{width:800,height:600}});
+ await slow.addInitScript(()=>{
+   window.requestAnimationFrame=callback=>setTimeout(()=>callback(performance.now()),100);
+   window.cancelAnimationFrame=clearTimeout;
+ });
+ await slow.goto('http://127.0.0.1:4336/examples/rpg-template/');
+ await slow.getByRole('button',{name:'Play',exact:true}).click();await slow.waitForFunction(()=>window.fixture.player.grounded);
+ const jump=await slow.evaluate(async()=>{
+   const player=window.fixture.player, floor=player.position.y, start=performance.now();let top=floor,airborne=false;
+   player.jump();
+   for(let i=0;i<30;i++){
+     await new Promise(requestAnimationFrame);top=Math.max(top,player.position.y);
+     if(!player.grounded)airborne=true;
+     if(airborne&&player.grounded)return {rise:top-floor,wallSeconds:(performance.now()-start)/1000};
+   }
+   throw new Error('Jump did not land');
+ });
+ assert.ok(jump.rise>.9&&jump.rise<1.1,JSON.stringify(jump));
+ assert.ok(jump.wallSeconds>.55&&jump.wallSeconds<1.1,JSON.stringify(jump));
+ result.slowFrameJump=jump;await slow.close();
  await writeFile(output+'/checks.json',JSON.stringify(result,null,2));console.log(JSON.stringify(result));
 }finally{await browser?.close();server.kill();}

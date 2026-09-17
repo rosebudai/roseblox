@@ -333,7 +333,9 @@ export async function createRpgGame(config) {
       config.update?.(dt, api);
     }
     renderer.setAnimationLoop(now => {
-      const dt = lastTime === null ? 0 : Math.max(0, Math.min(.05, (now - lastTime) / 1000)); lastTime = now;
+      // Allow the fixed-step motor to catch up below 20 FPS; a 50ms cap made
+      // jumps and cooldowns take longer in wall time on slower renderers.
+      const dt = lastTime === null ? 0 : Math.max(0, Math.min(8 / 60, (now - lastTime) / 1000)); lastTime = now;
       if (session.playing && !player.active) session.hold("pause");
       if (session.playing) time += dt;
       world.advance(dt, { paused: !session.playing, beforeStep: step });
