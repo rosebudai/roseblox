@@ -4,12 +4,23 @@
   "description": "Javascript game engine.",
   "main": "src/index.js",
   "type": "module",
-  "exports": "./src/index.js",
+  "exports": {
+    ".": "./src/index.js",
+    "./mechanics": "./src/mechanics.js",
+    "./rpg": "./src/rpg.js",
+    "./visuals": "./src/visuals.js",
+    "./rpg-template": "./src/rpgTemplate.js"
+  },
   "scripts": {
     "build": "node scripts/build.mjs",
     "test": "node --test tests/*.test.js",
+    "test:rpg-ui": "node scripts/check-rpg-ui.mjs",
     "docs": "mkdir -p build/docs && jsdoc -c jsdoc.json",
-    "build:all": "npm run build && npm run docs"
+    "build:all": "npm run build && npm run docs",
+    "test:rpg-combat": "node scripts/check-rpg-combat.mjs",
+    "test:rpg-interaction": "node scripts/check-rpg-interaction.mjs",
+    "test:rpg-bindings": "node scripts/check-rpg-bindings.mjs",
+    "test:rpg-world": "node scripts/check-rpg-world.mjs"
   },
   "keywords": [],
   "author": "mike.liu.dev@gmail.com",

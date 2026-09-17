@@ -4,7 +4,26 @@ A small JavaScript engine for browser 3D games, built on Three.js, Rapier, Minip
 
 This development version modernizes the 2025 engine. It retains `engine`, `CoreComponents`, resource/setup/system registration and direct access to the underlying libraries. New games can use the smaller `createGame` API; multiple previews should use independent instances.
 
-## Use in a generated game
+## Current RPG template experiment
+
+The current Playground experiment selects a specialized foundation only for new
+single-player desktop open-world 3D RPGs. Other genres and existing games keep
+their existing path. The generic mechanics library remains separately useful.
+
+`createRpgGame` from `roseblox-game-engine/rpg-template` owns the application loop,
+classic WoW controls, selection, dialogue and scoped pause, quests, inventory,
+combat, recovery and a skinnable HUD. Generated code authors assets, Three.js
+world construction, content and the theme. See [the authoring API](docs/RPG_TEMPLATE.md)
+and [the engineering fixture](examples/rpg-template/index.html).
+
+Build inside the workstation with `npm run build`, then explicitly package the
+RPG template with `node scripts/sync-rpg-template.mjs /workspace/PlaygroundGatewayV2`.
+This verifies build hashes and writes a separate `rpg_template` package; it does
+not replace the historical adapter-only comparison bundle. The Gateway protects
+managed runtime and boot files from generation/edit tools. This remains an
+experiment, not a production rollout.
+
+## Earlier full-engine API
 
 The accompanying Gateway integration supplies `rosie/roseblox.js` and `rosie/ROSEBLOX.md` to Playground's 3D projects. The compact guide is included in agentic model context for creation and follow-up edits while the engine and guide remain present. Engine implementation source is available on demand. Import the module and retain the starter's Three.js importmap. The complete compact API contract is in [docs/ROSEBLOX.md](docs/ROSEBLOX.md).
 
