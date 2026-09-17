@@ -1,6 +1,7 @@
 import * as THREE from "three";
 import { createMechanics } from "./mechanics.js";
 import { RPG_MOVEMENT_DEFAULTS } from "./rpgProfile.js";
+export { queryMeleeTargets } from "./rpgCombat.js";
 
 function positive(value, name) {
   if (!Number.isFinite(value) || value <= 0) throw new Error(`${name} must be positive.`);

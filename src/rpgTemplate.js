@@ -1,7 +1,7 @@
 import * as THREE from "three";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 import { clone as cloneSkeleton } from "three/addons/utils/SkeletonUtils.js";
-import { createRpgWorld, fitRpgModel } from "./rpg.js";
+import { createRpgWorld, fitRpgModel, queryMeleeTargets } from "./rpg.js";
 import { createRpgSession, createRpgProgress } from "./rpgSession.js";
 import { RPG_BINDINGS, RPG_MOVEMENT_DEFAULTS } from "./rpgProfile.js";
 
@@ -26,7 +26,7 @@ export async function createRpgGame(config) {
   let renderer, world, player, session, disposed = false, selected = null, dialogue = null, time = 0, uiTime = 0, lastTime = null;
   let health = config.player?.health ?? 100, noticeUntil = 0, dialogueSerial = 0, noticeText = "";
   let presentation, loading = true, loadError = null, previousFocusKey, restartPromise;
-  const listeners = [], assets = new Map(), actors = new Map(), mixers = [], cooldowns = new Map(), cleanups = [];
+  const listeners = [], assets = new Map(), actors = new Map(), mixers = [], cooldowns = new Map(), cleanups = [], combatHealth = new Map();
   const scene = new THREE.Scene(), camera = new THREE.PerspectiveCamera(config.visuals?.fov ?? 60, 1, .1, config.visuals?.far ?? 700);
   const spawn = config.player?.feet ?? [0, 1, 0];
   // Buttons and keyboard input share the same slot without UI-side index arithmetic.
@@ -60,17 +60,22 @@ export async function createRpgGame(config) {
   }
   function notice(message) { noticeText = String(message); noticeUntil = time + 4; refresh(); }
   function failure(error) { console.error(error); notice(error.message ?? error); }
+  function targetState(actor) {
+    if (!actor || actor.dead) return null;
+    const maxHealth = actor.def.health ?? 30;
+    return { id: actor.def.id, name: actor.def.name ?? actor.def.id, enemy: !!actor.def.enemy, health: actor.health,
+      maxHealth, healthFraction: maxHealth > 0 ? Math.max(0, Math.min(1, actor.health / maxHealth)) : 0 };
+  }
   function refresh() {
     if (!presentation || disposed) return;
     const reasons = session?.reasons ?? ["ready"];
     const phase = loadError ? "error" : loading ? "loading" : reasons.includes("dead") ? "dead"
       : dialogue ? "dialogue" : reasons.includes("ready") ? "ready" : session.playing ? "playing" : "paused";
-    const target = actors.get(selected);
-    const targetMaxHealth = target?.def.health ?? 30;
+    for (const [id, until] of combatHealth) if (until <= time || actors.get(id)?.dead) combatHealth.delete(id);
+    const combatTargets = [...combatHealth.keys()].map(id => targetState(actors.get(id))).filter(Boolean);
     presentation.update({ phase, reasons, title: config.title ?? "Adventure", description: config.description ?? "",
       health, maxHealth: config.player?.health ?? 100, currency: progress.currency, quests: progress.quests,
-      target: target && !target.dead ? { id: selected, name: target.def.name ?? selected, enemy: !!target.def.enemy, health: target.health,
-        maxHealth: targetMaxHealth, healthFraction: targetMaxHealth > 0 ? Math.max(0, Math.min(1, target.health / targetMaxHealth)) : 0 } : null,
+      target: combatTargets.at(-1) ?? targetState(actors.get(selected)), combatTargets,
       abilities: abilities.map(ability => ({ ...ability, remaining: Math.max(0, (cooldowns.get(ability.slot) ?? 0) - time) })),
       bindings: RPG_BINDINGS, notice: noticeText, error: loadError, deathText: config.deathText ?? "",
       dialogue: dialogue && { id: dialogue.id, title: dialogue.title, text: dialogue.text, busy: dialogue.busy,
@@ -153,26 +158,37 @@ export async function createRpgGame(config) {
     if (!health) { closeDialogue(); session.hold("dead"); } refresh();
   }
   function attack(index = 0) {
-    if (!session.playing) return;
+    if (disposed || !session?.playing) return;
     const ability = config.abilities?.[index]; if (!ability) return;
     if ((cooldowns.get(index) ?? 0) > time) { notice("Ability is recovering."); return; }
+    cooldowns.set(index, time + (ability.cooldown ?? .6));
     if (ability.heal) {
       health = Math.min(config.player?.health ?? 100, health + ability.heal);
     } else {
-      const actor = actors.get(selected);
-      if (!actor?.def.enemy || !reachable(actor, ability.range ?? 3)) { notice("Select an enemy within reach."); return; }
-      actor.health = Math.max(0, actor.health - (ability.damage ?? 10));
-      if (!actor.health) {
-        actor.dead = true; actor.root.visible = false; actor.body.remove();
-        progress.event("defeat", actor.def.id);
-        for (const [id, count] of Object.entries(actor.def.drops ?? {})) progress.collect(id, count);
-        notice(`Defeated ${actor.def.name ?? actor.def.id}`);
+      const candidates = [...actors.values()].filter(actor => actor.def.enemy && !actor.dead).map(actor => ({ actor, position: actor.position() }));
+      const from = player.position.add(new THREE.Vector3(0, .9, 0));
+      // A wide swing can hit several enemies; other enemies are not walls.
+      const exclude = [player.body, ...candidates.map(({ actor }) => actor.body)];
+      const hits = queryMeleeTargets(player.position, new THREE.Vector3(0, 0, 1).applyQuaternion(player.body.quaternion), candidates, {
+        range: ability.range ?? 3, arc: ability.arc ?? Math.PI * 2 / 3,
+        visible: ({ actor, position }) => !world.castSegment(from, position.clone().add(new THREE.Vector3(0, Math.min(actor.def.height ?? 1.5, .9), 0)), { exclude }),
+      });
+      for (const { actor } of hits) {
+        actor.health = Math.max(0, actor.health - (ability.damage ?? 10));
+        combatHealth.delete(actor.def.id); combatHealth.set(actor.def.id, time + 5);
+        if (!actor.health) {
+          actor.dead = true; actor.root.visible = false; actor.body.remove();
+          progress.event("defeat", actor.def.id);
+          for (const [id, count] of Object.entries(actor.def.drops ?? {})) progress.collect(id, count);
+          notice(`Defeated ${actor.def.name ?? actor.def.id}`);
+        }
+        config.onHit?.(actor, ability, api);
       }
-      config.onHit?.(actor, ability, api);
     }
-    cooldowns.set(index, time + (ability.cooldown ?? .6)); ability.effect?.(api); refresh();
+    ability.effect?.(api); refresh();
   }
   function respawn() {
+    combatHealth.clear();
     player.teleport(config.checkpoint ?? spawn); health = config.player?.health ?? 100;
     for (const actor of actors.values()) if (actor.npc && !actor.dead) { actor.npc.teleport(actor.home.toArray()); actor.npc.setVelocity([0, 0, 0]); actor.health = actor.def.health ?? 30; }
     session.release("dead"); session.hold("pause"); refresh();

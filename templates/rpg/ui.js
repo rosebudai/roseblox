@@ -3,7 +3,9 @@ export function createUI({ root, actions, bindAction, createControlsLegend }) {
   const summary = document.createElement('output');
   const view = document.createElement('section');
   const controls = createControlsLegend();
-  root.append(summary, view, controls);
+  const enemyHealth = document.createElement('section'); enemyHealth.setAttribute('aria-label', 'Enemy health');
+  const healthBars = new Map();
+  root.append(summary, view, controls, enemyHealth);
   let screen = '';
   function button(label, action, disabled = false) {
     const el = document.createElement('button');
@@ -14,6 +16,13 @@ export function createUI({ root, actions, bindAction, createControlsLegend }) {
     update(state) {
       summary.textContent = `${state.title} · ${Math.ceil(state.health)}/${state.maxHealth} HP · ${state.currency} coins\n${state.notice}`;
       controls.hidden = !['ready', 'paused'].includes(state.phase);
+      const damaged = new Set(state.combatTargets.map(t => t.id));
+      for (const [id, row] of healthBars) if (!damaged.has(id)) { row.remove(); healthBars.delete(id); }
+      for (const t of state.combatTargets) {
+        let row = healthBars.get(t.id);
+        if (!row) { row = document.createElement('label'); row.append(document.createElement('span'), document.createElement('meter')); enemyHealth.append(row); healthBars.set(t.id, row); }
+        row.firstChild.textContent = t.name; row.lastChild.max = t.maxHealth; row.lastChild.value = t.health;
+      }
       // Preserve interactive elements between updates so focus and clicks survive.
       const key = JSON.stringify([state.phase, state.dialogue, state.error, state.quests, state.target]);
       if (key === screen) return;

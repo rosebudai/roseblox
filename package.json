@@ -16,7 +16,8 @@
     "test": "node --test tests/*.test.js",
     "test:rpg-ui": "node scripts/check-rpg-ui.mjs",
     "docs": "mkdir -p build/docs && jsdoc -c jsdoc.json",
-    "build:all": "npm run build && npm run docs"
+    "build:all": "npm run build && npm run docs",
+    "test:rpg-combat": "node scripts/check-rpg-combat.mjs"
   },
   "keywords": [],
   "author": "mike.liu.dev@gmail.com",
