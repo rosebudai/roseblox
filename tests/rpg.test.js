@@ -272,3 +272,36 @@ test("RPG left/right mouse chording and capture loss do not retain movement or s
   assert.ok(stopped.distanceTo(player.position) < .01); assert.ok(camera.angleTo(b.camera.quaternion) < 1e-6);
   event(b.doc, 'pointerup', { pointerId: 1, button: 0, clientX: 950, clientY: 500 }); assert.equal(selections, 0);
 });
+
+for (const hz of [30, 60, 144]) test(`RPG jump is approximately one unit high and lands promptly at ${hz} Hz`, async t => {
+  const world = await createRpgWorld({ interpolate: false }); t.after(() => world.dispose());
+  const b = surface(); world.addBody({ position: [0, -.5, 0], shape: { type: 'box', size: [60, 1, 60] } });
+  const player = await world.addPlayer({ ...b, model: model() }); player.start(); advance(world, 1);
+  const floor = player.position.y; let top = floor, elapsed = 0, airborne = false;
+  event(b.win, 'keydown', { code: 'Space' }); event(b.win, 'keyup', { code: 'Space' });
+  for (let frame = 0; frame < hz * 2; frame++) {
+    world.advance(1 / hz); elapsed += 1 / hz; top = Math.max(top, player.position.y);
+    if (!player.grounded) airborne = true;
+    if (airborne && player.grounded) break;
+  }
+  assert.ok(top - floor > .9 && top - floor < 1.1, `rise ${top - floor}`);
+  assert.ok(elapsed >= .6 && elapsed <= .75, `airtime ${elapsed}`); assert.equal(player.grounded, true);
+  assert.ok(Math.abs(player.position.y - floor) < .02);
+  console.log(JSON.stringify({rpgJumpHz:hz,rise:top-floor,airtime:elapsed}));
+});
+
+test("RPG jump retains air steering and stops at low ceilings", async t => {
+  const world = await createRpgWorld({ interpolate: false }); t.after(() => world.dispose());
+  const b = surface(); world.addBody({ position: [0, -.5, 0], shape: { type: 'box', size: [60, 1, 60] } });
+  const player = await world.addPlayer({ ...b, model: model() }); player.start(); advance(world, 1);
+  player.setAction('right', true); player.jump(); advance(world, .15);
+  const right = player.position; assert.ok(right.x > .6); assert.equal(player.grounded, false);
+  player.setAction('right', false); player.setAction('left', true); advance(world, .2);
+  assert.ok(player.position.x < right.x - .9); assert.equal(player.grounded, false);
+  player.setAction('left', false); advance(world, 1);
+  player.teleport([0, .1, 0]); advance(world, .3);
+  world.addBody({ position: [0, 2.65, 0], shape: { type: 'box', size: [8, .5, 8] } });
+  const floor = player.position.y; let top = floor; player.jump();
+  for (let i=0;i<90;i++){world.advance(1/60);top=Math.max(top,player.position.y);}
+  assert.ok(top-floor < .65 && top-floor > .4, `ceiling-limited rise ${top-floor}`); assert.equal(player.grounded,true);
+});

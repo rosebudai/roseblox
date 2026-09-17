@@ -1,5 +1,6 @@
 import * as THREE from "three";
 import { createMechanics } from "./mechanics.js";
+import { RPG_MOVEMENT_DEFAULTS } from "./rpgProfile.js";
 
 function positive(value, name) {
   if (!Number.isFinite(value) || value <= 0) throw new Error(`${name} must be positive.`);
@@ -29,7 +30,7 @@ export function fitRpgModel(model, { height = 1.8, yaw = 0 } = {}) {
 
 /** RPG-specific surface over the shared physics motor; no rendering or game rules. */
 export async function createRpgWorld(options = {}) {
-  const mechanics = await createMechanics(options);
+  const mechanics = await createMechanics({ ...options, gravity: options.gravity ?? [0, RPG_MOVEMENT_DEFAULTS.gravity, 0] });
   function prepareActor(model, feet, height, radius, modelYaw) {
     positive(height, "height"); positive(radius, "radius");
     if (height < 2 * radius) throw new Error("Actor height must be at least twice its radius.");
@@ -58,7 +59,7 @@ export async function createRpgWorld(options = {}) {
       body = await mechanics.addThirdPersonPlayer({
         ...controls, position: spawn.toArray(), radius, height: height - 2 * radius, forwardAxis: "+Z",
         controlMode: controls.controlMode ?? "mmo",
-        jumpSpeed: controls.jumpSpeed ?? 7, facing: controls.facing ?? "camera",
+        jumpSpeed: controls.jumpSpeed ?? RPG_MOVEMENT_DEFAULTS.jumpSpeed, facing: controls.facing ?? "camera",
         targetOffset: controls.targetOffset ?? [0, height * .3, 0],
       });
     } catch (error) {

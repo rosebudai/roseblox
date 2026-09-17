@@ -3,7 +3,7 @@ import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 import { clone as cloneSkeleton } from "three/addons/utils/SkeletonUtils.js";
 import { createRpgWorld, fitRpgModel } from "./rpg.js";
 import { createRpgSession, createRpgProgress } from "./rpgSession.js";
-import { RPG_BINDINGS } from "./rpgProfile.js";
+import { RPG_BINDINGS, RPG_MOVEMENT_DEFAULTS } from "./rpgProfile.js";
 
 export const RPG_TEMPLATE_VERSION = "0.2.1-experiment";
 export { RPG_BINDINGS, createRpgSession, createRpgProgress };
@@ -239,7 +239,7 @@ export async function createRpgGame(config) {
     if (!world.getDiagnostics().bodies) throw new Error("World requires a registered walkable surface via addSurface(mesh).");
     const p = config.player ?? {};
     player = await world.addPlayer({ model: model(p.model), feet: spawn, height: p.height ?? 1.8, radius: p.radius ?? .35, modelYaw: p.modelYaw ?? 0,
-      speed: p.speed ?? 5, runSpeed: p.runSpeed ?? 8, jumpSpeed: p.jumpSpeed ?? 7, distance: p.distance ?? 6, yaw: p.yaw ?? 0, pitch: p.pitch ?? .3,
+      speed: p.speed ?? 5, runSpeed: p.runSpeed ?? 8, jumpSpeed: p.jumpSpeed ?? RPG_MOVEMENT_DEFAULTS.jumpSpeed, distance: p.distance ?? 6, yaw: p.yaw ?? 0, pitch: p.pitch ?? .3,
       canvas: renderer.domElement, camera, controlMode: "mmo", keyboardLayout: "classic", facing: "camera",
       onSelect: ({ hit }) => select(hit?.body.data?.rpgId ?? null) });
     scene.add(player.root);

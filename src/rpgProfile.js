@@ -1,3 +1,5 @@
+export const RPG_MOVEMENT_DEFAULTS = Object.freeze({ gravity: -20, jumpSpeed: 6.25 });
+
 export const RPG_BINDINGS = Object.freeze([
   { label: "W/S", description: "Forward / backward" },
   { label: "A/D", description: "Turn (strafe while RMB held)" },
