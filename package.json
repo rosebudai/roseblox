@@ -19,7 +19,8 @@
     "build:all": "npm run build && npm run docs",
     "test:rpg-combat": "node scripts/check-rpg-combat.mjs",
     "test:rpg-interaction": "node scripts/check-rpg-interaction.mjs",
-    "test:rpg-bindings": "node scripts/check-rpg-bindings.mjs"
+    "test:rpg-bindings": "node scripts/check-rpg-bindings.mjs",
+    "test:rpg-world": "node scripts/check-rpg-world.mjs"
   },
   "keywords": [],
   "author": "mike.liu.dev@gmail.com",

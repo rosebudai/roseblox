@@ -5,8 +5,10 @@ import { createRpgWorld, fitRpgModel, queryMeleeTargets } from "./rpg.js";
 import { createRpgSession, createRpgProgress } from "./rpgSession.js";
 import { RPG_BINDINGS, RPG_MOVEMENT_DEFAULTS } from "./rpgProfile.js";
 import { bindRpgUI } from "./rpgUI.js";
+import { resolveRpgLighting } from "./rpgLighting.js";
+import { createRpgScenery } from "./rpgScenery.js";
 
-export const RPG_TEMPLATE_VERSION = "0.3.2-experiment";
+export const RPG_TEMPLATE_VERSION = "0.3.3-experiment";
 export { RPG_BINDINGS, createRpgSession, createRpgProgress };
 
 const css = `
@@ -24,7 +26,7 @@ export async function createRpgGame(config) {
   const ui = document.createElement("div");
   Object.assign(ui.style, { position: "absolute", inset: "0", pointerEvents: "none" });
   root.append(ui);
-  let renderer, world, player, session, disposed = false, selected = null, dialogue = null, time = 0, uiTime = 0, lastTime = null;
+  let renderer, world, scenery, player, session, disposed = false, selected = null, dialogue = null, time = 0, uiTime = 0, lastTime = null;
   let health = config.player?.health ?? 100, noticeUntil = 0, dialogueSerial = 0, noticeText = "";
   let presentation, loading = true, loadError = null, previousFocusKey, restartPromise;
   const listeners = [], assets = new Map(), actors = new Map(), mixers = [], cooldowns = new Map(), cleanups = [], combatHealth = new Map();
@@ -219,15 +221,10 @@ export async function createRpgGame(config) {
     const value = assets.get(id); if (!value?.scene) throw new Error(`Missing model asset: ${id}`);
     return cloneSkeleton(value.scene);
   }
-  function addSurface(mesh) { scene.add(mesh); mesh.receiveShadow = true; return world.addStaticMesh(mesh); }
-  function addProp(object, options = {}) {
-    scene.add(object); if (options.position) object.position.fromArray(options.position);
-    if (options.rotation) object.rotation.set(...options.rotation);
-    if (options.scale) object.scale.setScalar(options.scale);
-    object.traverse(n => { if (n.isMesh) { n.castShadow = true; n.receiveShadow = true; } });
-    if (options.collider) object.traverse(n => { if (n.isMesh) world.addStaticMesh(n); });
-    return object;
-  }
+  const addSurface = mesh => scenery.addSurface(mesh);
+  const addProp = (object, options) => scenery.addProp(object, options);
+  const addDecoration = (object, options) => scenery.addDecoration(object, options);
+  const removeProp = object => scenery.removeProp(object);
   function dispose() {
     if (disposed) return; disposed = true;
     renderer?.setAnimationLoop(null); session?.dispose(); world?.dispose();
@@ -238,7 +235,7 @@ export async function createRpgGame(config) {
     for (const a of assets.values()) { if (a?.isTexture) resources.add(a); if (a instanceof HTMLAudioElement) { a.pause(); a.src = ""; } }
     for (const resource of resources) resource.dispose(); renderer?.dispose(); root.remove();
   }
-  const api = { scene, camera, root, assets, actors, progress, model, addSurface, addProp, select, interact, attack, damage, showDialogue, closeDialogue, notice, dispose, restart,
+  const api = { scene, camera, root, assets, actors, progress, model, addSurface, addProp, addDecoration, removeProp, select, interact, attack, damage, showDialogue, closeDialogue, notice, dispose, restart,
     get player() { return player; }, get world() { return world; }, get renderer() { return renderer; }, get session() { return session; }, get selected() { return selected; }, get health() { return health; },
     onDispose: fn => cleanups.push(fn),
   };
@@ -250,9 +247,10 @@ export async function createRpgGame(config) {
     // UI key presses must not become movement/ability input. Escape still closes or pauses.
     listen(ui, "keydown", event => { if (event.code !== "Escape") event.stopPropagation(); });
     refresh();
+    const lighting = resolveRpgLighting(config.visuals);
     renderer = new THREE.WebGLRenderer({ antialias: true }); renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
     renderer.shadowMap.enabled = config.visuals?.shadows !== false; renderer.shadowMap.type = THREE.PCFSoftShadowMap;
-    renderer.toneMapping = THREE.ACESFilmicToneMapping; renderer.toneMappingExposure = config.visuals?.exposure ?? 1;
+    renderer.toneMapping = THREE.ACESFilmicToneMapping; renderer.toneMappingExposure = lighting.exposure;
     root.prepend(renderer.domElement); renderer.domElement.tabIndex = 0;
     const gltf = new GLTFLoader(), textures = new THREE.TextureLoader();
     await Promise.all(Object.entries(config.assets ?? {}).map(async ([id, def]) => {
@@ -268,13 +266,16 @@ export async function createRpgGame(config) {
     if (config.skybox) { const sky = assets.get(config.skybox); if (!sky?.isTexture) throw new Error("Skybox must reference a texture asset."); sky.mapping = THREE.EquirectangularReflectionMapping; scene.background = sky; if (config.visuals?.environment !== false) scene.environment = sky; }
     else scene.background = new THREE.Color(config.visuals?.background ?? "#97b8d2");
     if (config.visuals?.fog) scene.fog = new THREE.Fog(...config.visuals.fog);
-    const hemi = new THREE.HemisphereLight(config.visuals?.skyColor ?? 0xe7f3ff, config.visuals?.groundColor ?? 0x635f52, config.visuals?.ambient ?? 1.5); scene.add(hemi);
-    const sun = new THREE.DirectionalLight(config.visuals?.sunColor ?? 0xffe6b5, config.visuals?.sunIntensity ?? 2.5); sun.position.fromArray(config.visuals?.sunPosition ?? [20, 35, 15]);
+    const hemi = new THREE.HemisphereLight(config.visuals?.skyColor ?? 0xe7f3ff, config.visuals?.groundColor ?? 0x635f52, lighting.ambientIntensity); scene.add(hemi);
+    const sun = new THREE.DirectionalLight(config.visuals?.sunColor ?? 0xffe6b5, lighting.sunIntensity); sun.position.fromArray(config.visuals?.sunPosition ?? [20, 35, 15]);
     sun.castShadow = renderer.shadowMap.enabled; sun.shadow.mapSize.set(2048, 2048); sun.shadow.normalBias = .035;
     const extent = config.visuals?.shadowExtent ?? 45; Object.assign(sun.shadow.camera, { left: -extent, right: extent, top: extent, bottom: -extent, near: .5, far: 160 }); sun.shadow.camera.updateProjectionMatrix(); scene.add(sun, sun.target);
-    world = await createRpgWorld();
+    const physics = await createRpgWorld();
+    scenery = createRpgScenery(scene, physics);
+    world = { ...physics, addStaticMesh: scenery.addStaticMesh };
     await config.buildWorld?.(api);
-    if (!world.getDiagnostics().bodies) throw new Error("World requires a registered walkable surface via addSurface(mesh).");
+    scenery.finalize();
+    if (!world.getDiagnostics().bodies) throw new Error("World requires a walkable collision surface in buildWorld.");
     const p = config.player ?? {};
     player = await world.addPlayer({ model: model(p.model), feet: spawn, height: p.height ?? 1.8, radius: p.radius ?? .35, modelYaw: p.modelYaw ?? 0,
       speed: p.speed ?? 5, runSpeed: p.runSpeed ?? 8, jumpSpeed: p.jumpSpeed ?? RPG_MOVEMENT_DEFAULTS.jumpSpeed, distance: p.distance ?? 6, yaw: p.yaw ?? 0, pitch: p.pitch ?? .3,
