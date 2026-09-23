@@ -3,13 +3,13 @@ import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 import { clone as cloneSkeleton } from "three/addons/utils/SkeletonUtils.js";
 import { createRpgWorld, fitRpgModel, queryMeleeTargets } from "./rpg.js";
 import { createRpgSession, createRpgProgress } from "./rpgSession.js";
-import { RPG_BINDINGS, RPG_MOVEMENT_DEFAULTS } from "./rpgProfile.js";
+import { RPG_BINDINGS, RPG_MOVEMENT_DEFAULTS, rpgBindings, rpgControlScheme } from "./rpgProfile.js";
 import { bindRpgUI } from "./rpgUI.js";
 import { resolveRpgLighting } from "./rpgLighting.js";
 import { createRpgScenery } from "./rpgScenery.js";
 
-export const RPG_TEMPLATE_VERSION = "0.3.3-experiment";
-export { RPG_BINDINGS, createRpgSession, createRpgProgress };
+export const RPG_TEMPLATE_VERSION = "0.4.0-experiment";
+export { RPG_BINDINGS, rpgBindings, rpgControlScheme, createRpgSession, createRpgProgress };
 
 const css = `
 html,body{margin:0;width:100%;height:100%;overflow:hidden}
@@ -37,13 +37,14 @@ export async function createRpgGame(config) {
   ]);
   const scene = new THREE.Scene(), camera = new THREE.PerspectiveCamera(config.visuals?.fov ?? 60, 1, .1, config.visuals?.far ?? 700);
   const spawn = config.player?.feet ?? [0, 1, 0];
+  const scheme = rpgControlScheme(config), bindings = rpgBindings(scheme);
   // Buttons and keyboard input share the same slot without UI-side index arithmetic.
   const abilities = (config.abilities ?? []).map((ability, slot) => Object.freeze({
-    name: ability.name, slot, key: RPG_BINDINGS.find(b => b.slot === slot)?.label, activate: () => attack(slot),
+    name: ability.name, slot, key: bindings.find(b => b.slot === slot && b.code)?.label, activate: () => attack(slot),
   }));
   function createControlsLegend() {
     const legend = document.createElement("dl"); legend.setAttribute("aria-label", "Controls");
-    for (const binding of RPG_BINDINGS) {
+    for (const binding of bindings) {
       if (binding.slot !== undefined && !abilities[binding.slot]) continue;
       const term = document.createElement("dt"), key = document.createElement("kbd"), description = document.createElement("dd");
       key.textContent = binding.label; term.append(key);
@@ -88,7 +89,7 @@ export async function createRpgGame(config) {
       interaction: nearby && { id: nearby.def.id, name: nearby.def.name ?? nearby.def.id,
         action: nearby.def.item ? "Collect" : characterIds.has(nearby.def.id) ? "Talk to" : "Interact with" },
       abilities: abilities.map(ability => ({ ...ability, remaining: Math.max(0, (cooldowns.get(ability.slot) ?? 0) - time) })),
-      bindings: RPG_BINDINGS, notice: noticeText, error: loadError, deathText: config.deathText ?? "",
+      bindings, notice: noticeText, error: loadError, deathText: config.deathText ?? "",
       dialogue: dialogue && { id: dialogue.id, title: dialogue.title, text: dialogue.text, busy: dialogue.busy,
         choices: dialogue.choices.map((choice, index) => ({ id: `${dialogue.id}:${index}`, label: choice.label })) },
     });
@@ -192,7 +193,7 @@ export async function createRpgGame(config) {
       const from = player.position.add(new THREE.Vector3(0, .9, 0));
       // A wide swing can hit several enemies; other enemies are not walls.
       const exclude = [player.body, ...candidates.map(({ actor }) => actor.body)];
-      const hits = queryMeleeTargets(player.position, new THREE.Vector3(0, 0, 1).applyQuaternion(player.body.quaternion), candidates, {
+      const hits = queryMeleeTargets(player.position, player.forward, candidates, {
         range: ability.range ?? 3, arc: ability.arc ?? Math.PI * 2 / 3,
         visible: ({ actor, position }) => !world.castSegment(from, position.clone().add(new THREE.Vector3(0, Math.min(actor.def.height ?? 1.5, .9), 0)), { exclude }),
       });
@@ -278,9 +279,10 @@ export async function createRpgGame(config) {
     if (!world.getDiagnostics().bodies) throw new Error("World requires a walkable collision surface in buildWorld.");
     const p = config.player ?? {};
     player = await world.addPlayer({ model: model(p.model), feet: spawn, height: p.height ?? 1.8, radius: p.radius ?? .35, modelYaw: p.modelYaw ?? 0,
-      speed: p.speed ?? 5, runSpeed: p.runSpeed ?? 8, jumpSpeed: p.jumpSpeed ?? RPG_MOVEMENT_DEFAULTS.jumpSpeed, distance: p.distance ?? 6, yaw: p.yaw ?? 0, pitch: p.pitch ?? .3,
-      canvas: renderer.domElement, camera, controlMode: "mmo", keyboardLayout: "classic", facing: "camera",
-      onSelect: ({ hit }) => select(hit?.body.data?.rpgId ?? null) });
+      speed: p.speed ?? 5, runSpeed: p.runSpeed ?? 8, jumpSpeed: p.jumpSpeed ?? RPG_MOVEMENT_DEFAULTS.jumpSpeed, distance: p.distance ?? 6, yaw: p.yaw ?? 0, pitch: p.pitch ?? (p.view === "first" ? 0 : .3),
+      canvas: renderer.domElement, camera, view: p.view ?? "third", ...(scheme === "mmo"
+        ? { controlMode: "mmo", keyboardLayout: "classic", facing: "camera", onSelect: ({ hit }) => select(hit?.body.data?.rpgId ?? null) }
+        : { controlMode: "pointer", facing: "camera", onAttack: () => attack(0) }) });
     scene.add(player.root);
     function animate(actor, def) {
       const clips = assets.get(def.model)?.animations ?? [];
@@ -326,7 +328,7 @@ export async function createRpgGame(config) {
       if (event.code === "Escape") { event.preventDefault(); if (dialogue) closeDialogue(); else session.hold("pause"); return; }
       if (!session.playing) return;
       if (event.code === "KeyF") { event.preventDefault(); interact(); }
-      const action = RPG_BINDINGS.find(b => b.code === event.code && b.slot !== undefined); if (action) { event.preventDefault(); attack(action.slot); }
+      const action = bindings.find(b => b.code === event.code && b.slot !== undefined); if (action) { event.preventDefault(); attack(action.slot); }
     });
     const zones = new Set();
     function step(dt) {

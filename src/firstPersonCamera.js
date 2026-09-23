@@ -16,7 +16,7 @@ export function createFirstPersonCamera({ entity, camera, controls, canvas, inpu
   const pitchLimit = Math.PI / 2 - 0.05;
   const clampPitch = (value) => Math.max(-pitchLimit, Math.min(pitchLimit, value));
   let yaw = options.yaw, pitch = clampPitch(options.pitch);
-  let enabled = false, playing = false, disposed = false, hidden = null, lastUpdate = performance.now();
+  let enabled = false, playing = false, disposed = false, suspended = false, hidden = null, lastUpdate = performance.now();
   const active = () => !disposed && enabled && playing;
   const syncInput = () => {
     if (entity.player) entity.player.enabled = active();
@@ -86,6 +86,8 @@ export function createFirstPersonCamera({ entity, camera, controls, canvas, inpu
     start() {
       if (disposed) throw new Error("This first-person camera is disposed. Create a new controller.");
       if (!world.has(entity)) throw new Error("The first-person entity is no longer in this game.");
+      // A host suspension (dialogue, menus) outranks canvas clicks and repeated starts.
+      if (suspended) return;
       // Resume and repeated starts retain aim, held input and pending capture.
       // Only a stopped round starts again from its configured orientation.
       if (enabled) {
@@ -100,8 +102,23 @@ export function createFirstPersonCamera({ entity, camera, controls, canvas, inpu
       controller.update();
       mouse.start();
     },
+    pause() {
+      if (disposed) return;
+      suspended = true;
+      mouse.cancel();
+      // Cancelling fallback look has no capture-loss event, so end the round here.
+      playing = false;
+      canvas.style.cursor = saved.cursor;
+      syncInput();
+    },
+    resume() {
+      if (disposed) return;
+      suspended = false;
+      controller.start();
+    },
     stop() {
       if (disposed) return;
+      suspended = false;
       enabled = playing = false;
       mouse.cancel();
       canvas.style.cursor = saved.cursor;
@@ -140,7 +157,7 @@ export function createFirstPersonCamera({ entity, camera, controls, canvas, inpu
     }
   };
   function resume() {
-    if (enabled && !disposed && !playing) mouse.start();
+    if (enabled && !disposed && !playing && !suspended) mouse.start();
   }
   canvas.addEventListener("click", resume);
   canvasOwners.set(canvas, controller);

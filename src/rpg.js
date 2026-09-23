@@ -40,24 +40,33 @@ export async function createRpgWorld(options = {}) {
     const visual = fitRpgModel(model, { height, yaw: modelYaw });
     return { spawn, visual };
   }
-  function attachActor(body, visual, height) {
-    const root = new THREE.Group();
+  function attachActor(body, visual, height, forwardAxis = "+Z") {
+    const root = new THREE.Group(), axis = new THREE.Vector3(0, 0, forwardAxis === "+Z" ? 1 : -1);
     visual.position.y = -height / 2;
     root.add(visual); body.bindObject(root);
     return {
       body, root, visual,
       get position() { return body.position.add(new THREE.Vector3(0, -height / 2, 0)); },
+      /** Horizontal facing, independent of each controller's body axis. */
+      get forward() { const v = axis.clone().applyQuaternion(body.quaternion); v.y = 0; return v.lengthSq() ? v.normalize() : new THREE.Vector3(0, 0, -1); },
       get grounded() { return body.grounded; },
       jump: () => body.jump(),
       teleport: feet => body.teleport(feetVector(feet).add(new THREE.Vector3(0, height / 2, 0))),
       remove: () => { body.remove(); root.removeFromParent(); },
     };
   }
-  async function addPlayer({ model, feet = [0, 0, 0], height = 1.8, radius = .35, modelYaw = 0, ...controls }) {
+  async function addPlayer({ model, feet = [0, 0, 0], height = 1.8, radius = .35, modelYaw = 0, view = "third", ...controls }) {
+    if (!["third", "first"].includes(view)) throw new Error("view must be third or first.");
     const { spawn, visual } = prepareActor(model, feet, height, radius, modelYaw);
     let body;
     try {
-      body = await mechanics.addThirdPersonPlayer({
+      // First person keeps the fitted body for its collider/pose but never draws it over the camera.
+      if (view === "first") body = await mechanics.addFpsPlayer({
+        camera: controls.camera, canvas: controls.canvas, position: spawn.toArray(), radius, height: height - 2 * radius,
+        speed: controls.speed, runSpeed: controls.runSpeed, jumpSpeed: controls.jumpSpeed ?? RPG_MOVEMENT_DEFAULTS.jumpSpeed,
+        eyeOffset: [0, height * .42, 0], yaw: controls.yaw ?? 0, pitch: controls.pitch ?? 0, sensitivity: controls.sensitivity, onFire: controls.onAttack,
+      });
+      else body = await mechanics.addThirdPersonPlayer({
         ...controls, position: spawn.toArray(), radius, height: height - 2 * radius, forwardAxis: "+Z",
         controlMode: controls.controlMode ?? "mmo",
         jumpSpeed: controls.jumpSpeed ?? RPG_MOVEMENT_DEFAULTS.jumpSpeed, facing: controls.facing ?? "camera",
@@ -68,7 +77,8 @@ export async function createRpgWorld(options = {}) {
       model.removeFromParent();
       throw error;
     }
-    const actor = attachActor(body, visual, height);
+    const actor = attachActor(body, visual, height, view === "first" ? "-Z" : "+Z");
+    if (view === "first") visual.visible = false;
     Object.defineProperties(actor, {
       active: { get: () => body.active },
       locked: { get: () => body.locked },

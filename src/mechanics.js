@@ -246,7 +246,15 @@ export async function createMechanics(options = {}) {
       Object.defineProperties(handle, {
         active: { get: () => entry.fps.active }, locked: { get: () => entry.fps.locked }, enabled: { get: () => entry.fps.enabled },
       });
-      Object.assign(handle, { start: () => { live(); entry.fps.start(); }, stop: () => entry.fps.stop(), setAction: (action, enabled) => { requireEntry(handle); entry.input.setAction(action, enabled); } });
+      Object.assign(handle, {
+        start: () => { live(); entry.fps.start(); }, stop: () => entry.fps.stop(),
+        pause: () => entry.fps.pause(), resume: () => { live(); entry.fps.resume(); },
+        setAction: (action, enabled) => { requireEntry(handle); entry.input.setAction(action, enabled); },
+        setMoveSpeed: (walk, run = walk) => {
+          requireEntry(handle);
+          entry.speed = positive(walk, "speed", true); entry.runSpeed = positive(run, "runSpeed", true);
+        },
+      });
       return handle;
     } catch (error) {
       if (cameraOwners.get(camera) === entry) cameraOwners.delete(camera);
