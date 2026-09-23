@@ -84,7 +84,8 @@ export function createThirdPersonCamera({ entry, config, input, castSegment, cas
       if (suspended) return;
       enabled = true; controller.updateCamera(); mouse.start();
     },
-    pause() { suspended = true; mouse.cancel(); },
+    // Cancelling fallback look has no capture-loss event, so end the round here.
+    pause() { suspended = true; mouse.cancel(); active = false; canvas.style.cursor = cursor; },
     resume() { suspended = false; controller.start(); },
     stop() { suspended = false; enabled = active = false; mouse.cancel(); canvas.style.cursor = cursor; },
     updateInput(dt) {

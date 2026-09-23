@@ -7,6 +7,7 @@ export function createUI({root, actions, bindAction, createControlsLegend}) {
   const quests = el('div', journal?frame:root, 'quests'), target = el('p', frame), notice = el('output', root, 'notice');
   const toolbar = el('nav', frame), sheet = el(journal?'article':'section',root,'sheet');
   const help = el('details', frame, 'controls'); el('summary',help).textContent='Controls'; help.append(createControlsLegend());
+  const crosshair = el('div', root, 'crosshair'); crosshair.textContent = '+';
   const targetHealth = el('meter', frame); targetHealth.setAttribute('aria-label','Target health');
   sheet.setAttribute('role','dialog'); sheet.setAttribute('aria-label','Adventure');
   const heading = el('h2',sheet), body=el('p',sheet), choices=el('div',sheet,'choices');
@@ -16,7 +17,9 @@ export function createUI({root, actions, bindAction, createControlsLegend}) {
     update(s){
       window.fixtureState=s;
       title.textContent=s.title; health.max=s.maxHealth; health.value=s.health;
-      stats.textContent=`${Math.ceil(s.health)} HP · ${s.currency} coins`;
+      const rounds=s.abilities.find(a=>a.ammo!==undefined);
+      stats.textContent=`${Math.ceil(s.health)} HP · ${s.currency} coins${rounds?` · ${rounds.reloading?'Reloading':`${rounds.ammo}/${rounds.reserve??'∞'}`}`:''}`;
+      crosshair.hidden=!s.crosshair||s.phase!=='playing';
       target.textContent=s.interaction?`F · ${s.interaction.action} ${s.interaction.name}`:'Move near someone or something to interact'; notice.textContent=s.notice;
       targetHealth.hidden=!s.target?.enemy; targetHealth.max=1; targetHealth.value=s.target?.healthFraction??0;
       quests.textContent=s.quests.map(q=>`${q.title} · ${q.state}\n${q.progress.join(' / ')}`).join('\n');

@@ -23,6 +23,7 @@ const SHARED_BINDINGS = [
   { label: "1", description: "First ability", code: "Digit1", slot: 0 },
   { label: "2", description: "Second ability", code: "Digit2", slot: 1 },
   { label: "3", description: "Third ability", code: "Digit3", slot: 2 },
+  { label: "R", description: "Reload", code: "KeyR", feature: "reload" },
 ];
 
 /** Captured-mouse schemes: first-person, and third-person when aiming matters. */

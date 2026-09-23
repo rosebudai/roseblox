@@ -29,7 +29,8 @@ export function createRpgView(state, actions, labels = {}) {
       }),
     })),
     abilities: state.abilities.map(a => ({ ...a, id: a.slot ?? a.key, action: a.activate,
-      disabled: state.phase !== "playing" || a.remaining > 0, cooldownText: a.remaining > 0 ? `${a.remaining.toFixed(1)}s` : "" })),
+      disabled: state.phase !== "playing" || a.remaining > 0, cooldownText: a.remaining > 0 ? `${a.remaining.toFixed(1)}s` : "",
+      ammoText: a.ammo === undefined ? "" : a.reloading ? "Reloading" : a.reserve === null ? `${a.ammo}` : `${a.ammo} / ${a.reserve}` })),
   };
 }
 

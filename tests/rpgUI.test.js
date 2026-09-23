@@ -23,3 +23,12 @@ test("shared UI view exposes real lifecycle actions, progress and cooldown state
     assert.deepEqual(createRpgView({ ...state, phase }, actions).panel.actions.map(a => a.id), ids);
   }
 });
+
+test("ranged abilities expose compact ammo text", () => {
+  const base = { phase: "playing", health: 1, maxHealth: 1, quests: [], combatTargets: [], interaction: null };
+  const text = ability => createRpgView({ ...base, abilities: [{ slot: 0, name: "Rifle", remaining: 0, ...ability }] }, {}).abilities[0].ammoText;
+  assert.equal(text({}), "");
+  assert.equal(text({ ammo: 8, reserve: 24, reloading: false }), "8 / 24");
+  assert.equal(text({ ammo: 8, reserve: null, reloading: false }), "8");
+  assert.equal(text({ ammo: 0, reserve: 24, reloading: true }), "Reloading");
+});

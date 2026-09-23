@@ -1,7 +1,7 @@
 import * as THREE from "three";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 import { clone as cloneSkeleton } from "three/addons/utils/SkeletonUtils.js";
-import { createRpgWorld, fitRpgModel, queryMeleeTargets } from "./rpg.js";
+import { createRpgWorld, fitRpgModel, queryMeleeTargets, queryRangedTarget } from "./rpg.js";
 import { createRpgSession, createRpgProgress } from "./rpgSession.js";
 import { RPG_BINDINGS, RPG_MOVEMENT_DEFAULTS, rpgBindings, rpgControlScheme } from "./rpgProfile.js";
 import { bindRpgUI } from "./rpgUI.js";
@@ -37,9 +37,21 @@ export async function createRpgGame(config) {
   ]);
   const scene = new THREE.Scene(), camera = new THREE.PerspectiveCamera(config.visuals?.fov ?? 60, 1, .1, config.visuals?.far ?? 700);
   const spawn = config.player?.feet ?? [0, 1, 0];
-  const scheme = rpgControlScheme(config), bindings = rpgBindings(scheme);
+  const view = config.player?.view ?? "third", playerHeight = config.player?.height ?? 1.8;
+  const kit = config.attacks ?? config.abilities ?? [];
+  const kindOf = ability => ability.kind ?? (ability.heal ? "heal" : "melee");
+  for (const ability of kit) {
+    if (!["melee", "ranged", "heal"].includes(kindOf(ability))) throw new Error(`Ability ${ability.name} kind must be melee, ranged or heal.`);
+    if (ability.ammo && !(Number.isInteger(ability.ammo.clip) && ability.ammo.clip > 0)) throw new Error(`Ability ${ability.name} ammo.clip must be a positive integer.`);
+  }
+  const ammoDefaults = () => new Map(kit.flatMap((ability, slot) => kindOf(ability) === "ranged" && ability.ammo
+    ? [[slot, { clip: ability.ammo.clip, reserve: ability.ammo.reserve ?? Infinity, reloadUntil: 0 }]] : []));
+  let ammo = ammoDefaults();
+  const scheme = rpgControlScheme(config), bindings = rpgBindings(scheme).filter(b => b.feature !== "reload" || ammo.size);
+  const crosshair = view === "first" || kit.some(ability => kindOf(ability) === "ranged");
+  const effects = [], shots = [], tracerGeometry = new THREE.BoxGeometry(.035, .035, 1).translate(0, 0, .5), shotGeometry = new THREE.SphereGeometry(.12, 10, 8);
   // Buttons and keyboard input share the same slot without UI-side index arithmetic.
-  const abilities = (config.abilities ?? []).map((ability, slot) => Object.freeze({
+  const abilities = kit.map((ability, slot) => Object.freeze({
     name: ability.name, slot, key: bindings.find(b => b.slot === slot && b.code)?.label, activate: () => attack(slot),
   }));
   function createControlsLegend() {
@@ -88,8 +100,12 @@ export async function createRpgGame(config) {
       target: combatTargets.at(-1) ?? targetState(actors.get(selected)), combatTargets,
       interaction: nearby && { id: nearby.def.id, name: nearby.def.name ?? nearby.def.id,
         action: nearby.def.item ? "Collect" : characterIds.has(nearby.def.id) ? "Talk to" : "Interact with" },
-      abilities: abilities.map(ability => ({ ...ability, remaining: Math.max(0, (cooldowns.get(ability.slot) ?? 0) - time) })),
-      bindings, notice: noticeText, error: loadError, deathText: config.deathText ?? "",
+      abilities: abilities.map(ability => {
+        const rounds = ammo.get(ability.slot);
+        return { ...ability, remaining: Math.max(0, (cooldowns.get(ability.slot) ?? 0) - time, (rounds?.reloadUntil ?? 0) - time),
+          ...(rounds && { ammo: rounds.clip, reserve: Number.isFinite(rounds.reserve) ? rounds.reserve : null, reloading: rounds.reloadUntil > 0 }) };
+      }),
+      bindings, crosshair, notice: noticeText, error: loadError, deathText: config.deathText ?? "",
       dialogue: dialogue && { id: dialogue.id, title: dialogue.title, text: dialogue.text, busy: dialogue.busy,
         choices: dialogue.choices.map((choice, index) => ({ id: `${dialogue.id}:${index}`, label: choice.label })) },
     });
@@ -181,15 +197,80 @@ export async function createRpgGame(config) {
     health = Math.max(0, health - Math.max(0, amount)); config.onDamage?.(amount, api);
     if (!health) { closeDialogue(); session.hold("dead"); } refresh();
   }
+  const livingEnemies = () => [...actors.values()].filter(actor => actor.def.enemy && !actor.dead);
+  const chest = actor => actor.position().add(new THREE.Vector3(0, (actor.def.height ?? 1.8) * .55, 0));
+  function hitEnemy(actor, ability, alert = false) {
+    // A shot from beyond aggro range still provokes; melee keeps its proximity rules.
+    actor.health = Math.max(0, actor.health - (ability.damage ?? 10)); if (alert) actor.alertUntil = time + 8;
+    combatHealth.delete(actor.def.id); combatHealth.set(actor.def.id, time + 5);
+    if (!actor.health) {
+      actor.dead = true; actor.root.visible = false; actor.body.remove();
+      progress.event("defeat", actor.def.id);
+      for (const [id, count] of Object.entries(actor.def.drops ?? {})) progress.collect(id, count);
+      notice(`Defeated ${actor.def.name ?? actor.def.id}`);
+    }
+    config.onHit?.(actor, ability, api);
+  }
+  function tracer(from, to, color) {
+    const mesh = new THREE.Mesh(tracerGeometry, new THREE.MeshBasicMaterial({ color, transparent: true, opacity: .9, depthWrite: false }));
+    mesh.position.copy(from); mesh.lookAt(to); mesh.scale.z = Math.max(.01, from.distanceTo(to));
+    scene.add(mesh); effects.push({ mesh, until: time + .09 });
+  }
+  function removeMesh(mesh) { mesh.removeFromParent(); mesh.material.dispose(); }
+  function shoot(ability) {
+    const range = ability.range ?? 40, first = view === "first", exclude = [player.body];
+    camera.updateMatrixWorld();
+    const eye = camera.getWorldPosition(new THREE.Vector3()), aim = camera.getWorldDirection(new THREE.Vector3());
+    const from = first ? eye.clone() : player.position.add(new THREE.Vector3(0, playerHeight * .7, 0));
+    // Soft lock: generated games stay playable without precise mouse aim.
+    const target = queryRangedTarget(eye, aim, from, livingEnemies().map(actor => ({ actor, position: chest(actor) })), {
+      range, cone: ability.aimAssist ?? (first ? .06 : .44),
+      visible: ({ actor, position }) => { const hit = world.castSegment(from, position, { exclude }); return !hit || hit.body === actor.body; },
+    });
+    let to = target?.position;
+    if (!to) {
+      // Otherwise shoot from the muzzle at whatever the crosshair ray meets.
+      const reach = range + eye.distanceTo(from), sight = world.castSegment(eye, eye.clone().addScaledVector(aim, reach), { exclude });
+      to = eye.clone().addScaledVector(aim, sight ? sight.distance : reach);
+      if (to.distanceTo(from) > range) to = from.clone().add(to.clone().sub(from).setLength(range));
+    }
+    // Reach slightly past a surface point so the final segment does not stop just short of it.
+    const hit = world.castSegment(from, to.clone().add(to.clone().sub(from).setLength(.1)), { exclude });
+    const end = hit ? from.clone().add(to.clone().sub(from).setLength(hit.distance)) : to;
+    const up = camera.up.clone(), right = aim.clone().cross(up).normalize();
+    const muzzle = first ? eye.clone().addScaledVector(right, .18).addScaledVector(up, -.14).addScaledVector(aim, .4) : from.clone().addScaledVector(player.forward, .35);
+    tracer(muzzle, end, ability.tracer ?? "#ffe29a");
+    const actor = actors.get(hit?.body.data?.rpgId);
+    if (actor?.def.enemy && !actor.dead) hitEnemy(actor, ability, true);
+  }
+  function reload(slot) {
+    if (disposed || !session?.playing) return;
+    for (const [index, rounds] of ammo) {
+      if ((slot !== undefined && index !== slot) || rounds.reloadUntil || rounds.clip >= kit[index].ammo.clip || !rounds.reserve) continue;
+      rounds.reloadUntil = time + (kit[index].reload ?? 1.2);
+    }
+    refresh();
+  }
+  function addAmmo(slot, count) {
+    const rounds = ammo.get(slot); if (!rounds) throw new Error(`Ability ${slot} has no ammo.`);
+    rounds.reserve += Math.max(0, count); refresh();
+  }
   function attack(index = 0) {
     if (disposed || !session?.playing) return;
-    const ability = config.abilities?.[index]; if (!ability) return;
-    if ((cooldowns.get(index) ?? 0) > time) { notice("Ability is recovering."); return; }
-    cooldowns.set(index, time + (ability.cooldown ?? .6));
-    if (ability.heal) {
+    const ability = kit[index]; if (!ability) return;
+    const kind = kindOf(ability), rounds = ammo.get(index);
+    // Held-down firing retries often, so ranged attacks recover silently.
+    if ((cooldowns.get(index) ?? 0) > time || rounds?.reloadUntil) { if (kind !== "ranged") notice("Ability is recovering."); return; }
+    if (rounds && !rounds.clip) { if (rounds.reserve) reload(index); else notice(`${ability.name ?? "Ability"} is out of ammo.`); return; }
+    cooldowns.set(index, time + (ability.cooldown ?? (kind === "ranged" ? .25 : .6)));
+    if (kind === "heal") {
       health = Math.min(config.player?.health ?? 100, health + ability.heal);
+    } else if (kind === "ranged") {
+      if (rounds) rounds.clip--;
+      shoot(ability);
+      if (rounds && !rounds.clip) reload(index);
     } else {
-      const candidates = [...actors.values()].filter(actor => actor.def.enemy && !actor.dead).map(actor => ({ actor, position: actor.position() }));
+      const candidates = livingEnemies().map(actor => ({ actor, position: actor.position() }));
       const from = player.position.add(new THREE.Vector3(0, .9, 0));
       // A wide swing can hit several enemies; other enemies are not walls.
       const exclude = [player.body, ...candidates.map(({ actor }) => actor.body)];
@@ -197,22 +278,13 @@ export async function createRpgGame(config) {
         range: ability.range ?? 3, arc: ability.arc ?? Math.PI * 2 / 3,
         visible: ({ actor, position }) => !world.castSegment(from, position.clone().add(new THREE.Vector3(0, Math.min(actor.def.height ?? 1.5, .9), 0)), { exclude }),
       });
-      for (const { actor } of hits) {
-        actor.health = Math.max(0, actor.health - (ability.damage ?? 10));
-        combatHealth.delete(actor.def.id); combatHealth.set(actor.def.id, time + 5);
-        if (!actor.health) {
-          actor.dead = true; actor.root.visible = false; actor.body.remove();
-          progress.event("defeat", actor.def.id);
-          for (const [id, count] of Object.entries(actor.def.drops ?? {})) progress.collect(id, count);
-          notice(`Defeated ${actor.def.name ?? actor.def.id}`);
-        }
-        config.onHit?.(actor, ability, api);
-      }
+      for (const { actor } of hits) hitEnemy(actor, ability);
     }
     ability.effect?.(api); refresh();
   }
   function respawn() {
-    combatHealth.clear();
+    combatHealth.clear(); ammo = ammoDefaults();
+    for (const shot of shots.splice(0)) removeMesh(shot.mesh);
     player.teleport(config.checkpoint ?? spawn); health = config.player?.health ?? 100;
     for (const actor of actors.values()) if (actor.npc && !actor.dead) { actor.npc.teleport(actor.home.toArray()); actor.npc.setVelocity([0, 0, 0]); actor.health = actor.def.health ?? 30; }
     session.release("dead"); session.hold("pause"); refresh();
@@ -229,19 +301,19 @@ export async function createRpgGame(config) {
   function dispose() {
     if (disposed) return; disposed = true;
     renderer?.setAnimationLoop(null); session?.dispose(); world?.dispose();
-    presentation?.dispose?.();
+    presentation?.dispose?.(); tracerGeometry.dispose(); shotGeometry.dispose();
     for (const cleanup of [...listeners, ...cleanups]) cleanup();
     const resources = new Set();
     scene.traverse(n => { if (n.geometry) resources.add(n.geometry); for (const m of Array.isArray(n.material) ? n.material : n.material ? [n.material] : []) { resources.add(m); for (const v of Object.values(m)) if (v?.isTexture) resources.add(v); } });
     for (const a of assets.values()) { if (a?.isTexture) resources.add(a); if (a instanceof HTMLAudioElement) { a.pause(); a.src = ""; } }
     for (const resource of resources) resource.dispose(); renderer?.dispose(); root.remove();
   }
-  const api = { scene, camera, root, assets, actors, progress, model, addSurface, addProp, addDecoration, removeProp, select, interact, attack, damage, showDialogue, closeDialogue, notice, dispose, restart,
+  const api = { scene, camera, root, assets, actors, progress, model, addSurface, addProp, addDecoration, removeProp, select, interact, attack, reload, addAmmo, damage, showDialogue, closeDialogue, notice, dispose, restart,
     get player() { return player; }, get world() { return world; }, get renderer() { return renderer; }, get session() { return session; }, get selected() { return selected; }, get health() { return health; },
     onDispose: fn => cleanups.push(fn),
   };
   try {
-    const actions = Object.freeze({ play, pause: () => session?.hold("pause"), restart, respawn, interact, attack, closeDialogue, chooseDialogue });
+    const actions = Object.freeze({ play, pause: () => session?.hold("pause"), restart, respawn, interact, attack, reload, closeDialogue, chooseDialogue });
     const uiContext = { root: ui, game: api, actions, bindAction, createControlsLegend };
     presentation = config.createUI({ ...uiContext, bindUI: options => bindRpgUI(uiContext, options) });
     if (!presentation || typeof presentation.update !== "function") throw new Error("createUI must return {update(state), dispose?()}.");
@@ -308,7 +380,7 @@ export async function createRpgGame(config) {
       }
       visual.traverse(n => { if (n.isMesh) { n.castShadow = true; n.receiveShadow = true; } }); scene.add(visual);
       const interactable = def.interactable ?? !!(interactionIds.has(def.id) || def.item || def.dialogue || def.onInteract);
-      actors.set(def.id, { def, body, root: visual, npc, home, position: () => npc ? npc.position : home.clone(), health: def.health ?? 30, dead: false, interactable, nextAttack: 0, waypoint: 0 });
+      actors.set(def.id, { def, body, root: visual, npc, home, position: () => npc ? npc.position : home.clone(), health: def.health ?? 30, dead: false, interactable, nextAttack: 0, alertUntil: 0, waypoint: 0 });
     }
     for (const q of progress.quests) {
       if (q.giver && !actors.has(q.giver)) throw new Error(`Quest ${q.id} has unknown giver ${q.giver}.`);
@@ -328,18 +400,44 @@ export async function createRpgGame(config) {
       if (event.code === "Escape") { event.preventDefault(); if (dialogue) closeDialogue(); else session.hold("pause"); return; }
       if (!session.playing) return;
       if (event.code === "KeyF") { event.preventDefault(); interact(); }
+      if (event.code === "KeyR" && ammo.size) { event.preventDefault(); reload(); }
       const action = bindings.find(b => b.code === event.code && b.slot !== undefined); if (action) { event.preventDefault(); attack(action.slot); }
     });
     const zones = new Set();
+    function fireAt(actor) {
+      const def = actor.def, from = chest(actor), speed = def.projectileSpeed ?? 14;
+      const mesh = new THREE.Mesh(shotGeometry, new THREE.MeshBasicMaterial({ color: def.projectileColor ?? "#ff7a45" }));
+      mesh.position.copy(from); scene.add(mesh);
+      // Aimed at where the player is now, so moving dodges it.
+      const velocity = player.position.add(new THREE.Vector3(0, playerHeight * .6, 0)).sub(from).setLength(speed);
+      shots.push({ mesh, velocity, left: (def.attackRange ?? 14) * 1.5 / speed, damage: def.damage ?? 6 });
+    }
     function step(dt) {
+      for (const [index, rounds] of ammo) if (rounds.reloadUntil && time >= rounds.reloadUntil) {
+        const moved = Math.min(kit[index].ammo.clip - rounds.clip, rounds.reserve);
+        rounds.clip += moved; rounds.reserve -= moved; rounds.reloadUntil = 0;
+      }
+      const enemyBodies = livingEnemies().map(actor => actor.body);
+      for (let i = shots.length - 1; i >= 0; i--) {
+        const shot = shots[i], from = shot.mesh.position.clone(), travel = shot.velocity.clone().multiplyScalar(dt);
+        const hit = world.castSegment(from, from.clone().add(travel), { exclude: enemyBodies });
+        shot.left -= dt;
+        if (hit || shot.left <= 0) { shots.splice(i, 1); removeMesh(shot.mesh); if (hit?.body === player.body) damage(shot.damage); }
+        else shot.mesh.position.add(travel);
+      }
       for (const actor of actors.values()) {
         if (!actor.npc || actor.dead) continue;
-        const pos = actor.position(), delta = player.position.sub(pos), distance = delta.length();
+        const pos = actor.position(), delta = player.position.sub(pos), distance = delta.length(), ranged = actor.def.enemy === "ranged";
+        const range = actor.def.attackRange ?? (ranged ? 14 : 2);
         let goal = actor.home;
-        if (actor.def.enemy && distance < (actor.def.aggroRange ?? 10) && pos.distanceTo(actor.home) < (actor.def.leash ?? 20)) {
-          if (distance <= (actor.def.attackRange ?? 2) && reachable(actor, actor.def.attackRange ?? 2)) {
+        if (actor.def.enemy && (distance < (actor.def.aggroRange ?? (ranged ? 16 : 10)) || actor.alertUntil > time) && pos.distanceTo(actor.home) < (actor.def.leash ?? 20)) {
+          if (distance <= range && reachable(actor, range)) {
             actor.npc.setVelocity([0, 0, 0]); actor.npc.faceDirection(delta.toArray());
-            if (time >= actor.nextAttack) { actor.nextAttack = time + (actor.def.attackCooldown ?? 1.5); damage(actor.def.damage ?? 8); } continue;
+            if (time >= actor.nextAttack) {
+              actor.nextAttack = time + (actor.def.attackCooldown ?? (ranged ? 2 : 1.5));
+              if (ranged) fireAt(actor); else damage(actor.def.damage ?? 8);
+            }
+            continue;
           }
           goal = player.position;
         } else if (actor.def.patrol?.length) {
@@ -372,6 +470,10 @@ export async function createRpgGame(config) {
           if (next !== item.current && item.actions[next]) { item.actions[item.current]?.fadeOut(.15); item.actions[next].reset().fadeIn(.15).play(); item.current = next; } item.mixer.update(dt);
         }
         if (noticeUntil && time > noticeUntil) { noticeText = ""; noticeUntil = 0; }
+        for (let i = effects.length - 1; i >= 0; i--) {
+          const left = effects[i].until - time;
+          if (left > 0) effects[i].mesh.material.opacity = .9 * left / .09; else removeMesh(effects.splice(i, 1)[0].mesh);
+        }
       }
       uiTime += dt; if (uiTime > .1) { refresh(); uiTime = 0; }
       renderer.render(scene, camera);
