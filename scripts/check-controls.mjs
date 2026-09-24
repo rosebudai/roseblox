@@ -12,11 +12,11 @@ try{
  for(let i=0;i<40;i++){if(await fetch('http://127.0.0.1:4340/').then(r=>r.ok).catch(()=>false))break;await new Promise(r=>setTimeout(r,100));}
  browser=await chromium.launch({headless:true,executablePath:process.env.CANARY_CHROMIUM_EXECUTABLE,args:['--no-sandbox','--use-angle=swiftshader','--enable-unsafe-swiftshader']});
  async function open(query,touch){
-  const context=await browser.newContext(touch?{viewport:{width:844,height:390},isMobile:true,hasTouch:true,deviceScaleFactor:2}:{viewport:{width:1280,height:800}});
+  const context=await browser.newContext(touch?.laptop?{viewport:{width:1280,height:800},hasTouch:true}:touch?{viewport:{width:844,height:390},isMobile:true,hasTouch:true,deviceScaleFactor:2}:{viewport:{width:1280,height:800}});
   const page=await context.newPage();page.on('pageerror',e=>errors.push(e.message));
   await page.goto(`http://127.0.0.1:4340/examples/controls/?${query}`);
   await page.waitForFunction(()=>window.fixture);
-  return {page,context,cdp:touch?await context.newCDPSession(page):null};
+  return {page,context,cdp:touch&&!touch.laptop?await context.newCDPSession(page):null};
  }
  const pos=page=>page.evaluate(()=>window.fixture.player.position.toArray());
  const yaw=page=>page.evaluate(()=>{const d=window.fixture.camera.getWorldDirection(new window.fixture.camera.position.constructor());return Math.atan2(d.x,d.z);});
@@ -37,6 +37,16 @@ try{
  await page.keyboard.press('Escape');
  await page.waitForFunction(()=>!window.fixture.player.active);
  await page.locator('#menu').waitFor({state:'visible',timeout:2000});checks.push('Escape pauses');
+ await context.close();
+
+ // Touch laptop: the overlay shows like any touchscreen, and the keyboard still drives the player.
+ ({page,context}=await open('',{laptop:true}));
+ assert.equal(await page.evaluate(()=>window.fixture.player.touch),true);
+ await page.getByRole('button',{name:'Play',exact:true}).click();
+ await page.waitForFunction(()=>window.fixture.player.active&&window.fixture.player.grounded);await wait(page,2);
+ assert.equal(await overlay(page),'block');
+ const k0=await pos(page);await page.keyboard.down('KeyW');await wait(page,30);await page.keyboard.up('KeyW');
+ assert.ok(Math.hypot(...(await pos(page)).map((v,i)=>v-k0[i]))>.5);checks.push('touch laptop shows overlay and keeps keyboard');
  await context.close();
 
  // Touch: overlay only while playing, no pointer lock, analog stick, look drag, both at once, buttons.

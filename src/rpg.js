@@ -1,7 +1,7 @@
 import * as THREE from "three";
 import { createMechanics } from "./mechanics.js";
 import { RPG_MOVEMENT_DEFAULTS } from "./rpgProfile.js";
-import { createTouchControls, touchPreferred } from "./touchControls.js";
+import { createTouchControls, finePointer, touchAvailable } from "./touchControls.js";
 export { queryMeleeTargets, queryRangedTarget } from "./rpgCombat.js";
 
 function positive(value, name) {
@@ -62,8 +62,11 @@ export async function createRpgWorld({ playerDefaults = {}, ...options } = {}) {
     if (!["third", "first"].includes(view)) throw new Error("view must be third or first.");
     if (!["auto", true, false].includes(touch)) throw new Error("touch must be auto, true or false.");
     if (!Array.isArray(touchButtons)) throw new Error("touchButtons must be an array.");
-    // Touch play drives the same player through an overlay instead of a captured mouse.
-    const useTouch = touch === "auto" ? touchPreferred(controls.canvas?.ownerDocument?.defaultView) : touch;
+    // Touchscreens get an overlay driving the same player. Pointer lock is still requested when a
+    // mouse is present (touch laptops); phones skip it rather than wait for the request to fail.
+    const win = controls.canvas?.ownerDocument?.defaultView;
+    const useTouch = touch === "auto" ? touchAvailable(win) : touch;
+    const lockPointer = !useTouch || finePointer(win);
     const jumpSpeed = controls.jumpSpeed ?? RPG_MOVEMENT_DEFAULTS.jumpSpeed;
     const { spawn, visual } = prepareActor(model, feet, height, radius, modelYaw);
     let body;
@@ -71,12 +74,12 @@ export async function createRpgWorld({ playerDefaults = {}, ...options } = {}) {
       // First person keeps the fitted body for its collider/pose but never draws it over the camera.
       if (view === "first") body = await mechanics.addFpsPlayer({
         camera: controls.camera, canvas: controls.canvas, position: spawn.toArray(), radius, height: height - 2 * radius,
-        speed: controls.speed, runSpeed: controls.runSpeed, jumpSpeed, lockPointer: !useTouch,
+        speed: controls.speed, runSpeed: controls.runSpeed, jumpSpeed, lockPointer,
         eyeOffset: [0, height * .42, 0], yaw: controls.yaw ?? 0, pitch: controls.pitch ?? 0, sensitivity: controls.sensitivity, onFire: controls.onAttack,
       });
       else body = await mechanics.addThirdPersonPlayer({
         ...controls, position: spawn.toArray(), radius, height: height - 2 * radius, forwardAxis: "+Z",
-        controlMode: controls.controlMode ?? "mmo", lockPointer: !useTouch,
+        controlMode: controls.controlMode ?? "mmo", lockPointer,
         jumpSpeed, facing: controls.facing ?? "camera",
         targetOffset: controls.targetOffset ?? [0, height * .3, 0],
       });

@@ -1,8 +1,13 @@
 /** On-screen touch input for one player: left-thumb joystick, right-side look drag, jump and host buttons. */
 
-/** True when the primary pointer is a finger (phones, tablets without a mouse). */
-export function touchPreferred(win) {
-  return !!win?.matchMedia?.("(pointer: coarse)")?.matches;
+/** True on any touchscreen, including touch laptops, matching the controls Rosie shipped before. */
+export function touchAvailable(win) {
+  return !!win && ("ontouchstart" in win || win.navigator?.maxTouchPoints > 0);
+}
+
+/** True when a mouse or trackpad is also present, so pointer lock is worth requesting. */
+export function finePointer(win) {
+  return !!win?.matchMedia?.("(any-pointer: fine)")?.matches;
 }
 
 const DEAD_ZONE = .12;

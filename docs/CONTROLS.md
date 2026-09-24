@@ -35,8 +35,8 @@ renderer.setAnimationLoop(time => {
 - Desktop: WASD or arrows move relative to the camera, mouse looks (the pointer is
   captured after `start()`; if capture is refused, free-mouse look with edge turning
   takes over), Shift runs, Space jumps, wheel zooms in third person.
-- Touch devices (detected automatically): drag on the left half for an analog joystick,
-  drag on the right half to look, and tap Jump. The overlay covers the canvas at
+- Any touchscreen, including touch laptops (detected automatically): drag on the left
+  half for an analog joystick, drag on the right half to look, and tap Jump. The overlay covers the canvas at
   `z-index: 50` only while the player is active; put menus and HUD buttons above 50.
   Add game actions as `touchButtons: [{label:'Attack', onPress, onRelease}]` or
   `{label:'Run', action:'run'}`. Force it with `touch: true|false`.

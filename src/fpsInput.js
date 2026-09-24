@@ -100,7 +100,10 @@ export function createPointerControls({canvas, getState, enter, pause, look,
     if (getState() === 'playing' && event.button === 0) fire(event);
   });
   listen(doc, 'mouseup', event => { if (event.button === 0) release(); });
-  listen(canvas, 'mouseleave', () => { if (mode === 'free') requestPause(); });
+  listen(canvas, 'mouseleave', event => {
+    // The touch overlay sits over the canvas; moving onto it is not leaving the game.
+    if (mode === 'free' && !event.relatedTarget?.closest?.('[data-roseblox-touch]')) requestPause();
+  });
   listen(doc, 'pointercancel', () => { clearInput(); });
   listen(canvas, 'contextmenu', event => event.preventDefault());
   listen(doc, 'keydown', event => {
