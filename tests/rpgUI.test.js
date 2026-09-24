@@ -32,3 +32,10 @@ test("ranged abilities expose compact ammo text", () => {
   assert.equal(text({ ammo: 8, reserve: null, reloading: false }), "8");
   assert.equal(text({ ammo: 0, reserve: 24, reloading: true }), "Reloading");
 });
+
+test("stealth state becomes one threat word", () => {
+  const base = { phase: "playing", health: 1, maxHealth: 1, quests: [], combatTargets: [], interaction: null, abilities: [] };
+  const word = extra => createRpgView({ ...base, ...extra }, {}).threatText;
+  assert.equal(word({}), ""); assert.equal(word({ alert: "hunted" }), "Hunted"); assert.equal(word({ alert: "searching" }), "Searching");
+  assert.equal(word({ alert: "suspicious", hidden: true }), "Hidden");
+});

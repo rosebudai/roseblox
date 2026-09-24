@@ -18,7 +18,7 @@ export function createUI({root, actions, bindAction, createControlsLegend}) {
       window.fixtureState=s;
       title.textContent=s.title; health.max=s.maxHealth; health.value=s.health;
       const rounds=s.abilities.find(a=>a.ammo!==undefined);
-      stats.textContent=`${Math.ceil(s.health)} HP · ${s.currency} coins${rounds?` · ${rounds.reloading?'Reloading':`${rounds.ammo}/${rounds.reserve??'∞'}`}`:''}`;
+      stats.textContent=`${Math.ceil(s.health)} HP · ${s.currency} coins${rounds?` · ${rounds.reloading?'Reloading':`${rounds.ammo}/${rounds.reserve??'∞'}`}`:''}${s.hidden?' · Hidden':s.alert?` · ${s.alert}`:''}`;
       crosshair.hidden=!s.crosshair||s.phase!=='playing';
       target.textContent=s.interaction?`F · ${s.interaction.action} ${s.interaction.name}`:'Move near someone or something to interact'; notice.textContent=s.notice;
       targetHealth.hidden=!s.target?.enemy; targetHealth.max=1; targetHealth.value=s.target?.healthFraction??0;

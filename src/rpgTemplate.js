@@ -5,6 +5,7 @@ import { createRpgWorld, fitRpgModel, queryMeleeTargets, queryRangedTarget } fro
 import { createRpgSession, createRpgProgress } from "./rpgSession.js";
 import { RPG_BINDINGS, RPG_MOVEMENT_DEFAULTS, rpgBindings, rpgControlScheme } from "./rpgProfile.js";
 import { bindRpgUI } from "./rpgUI.js";
+import { stalkerSenses, stepStalker } from "./rpgStalker.js";
 import { resolveRpgLighting } from "./rpgLighting.js";
 import { createRpgScenery } from "./rpgScenery.js";
 
@@ -27,7 +28,7 @@ export async function createRpgGame(config) {
   Object.assign(ui.style, { position: "absolute", inset: "0", pointerEvents: "none" });
   root.append(ui);
   let renderer, world, scenery, player, session, disposed = false, selected = null, dialogue = null, time = 0, uiTime = 0, lastTime = null;
-  let health = config.player?.health ?? 100, noticeUntil = 0, dialogueSerial = 0, noticeText = "";
+  let health = config.player?.health ?? 100, noticeUntil = 0, dialogueSerial = 0, noticeText = "", hidden = false, hideSpot = null, sneaking = false;
   let presentation, loading = true, loadError = null, previousFocusKey, restartPromise;
   const listeners = [], assets = new Map(), actors = new Map(), mixers = [], cooldowns = new Map(), cleanups = [], combatHealth = new Map();
   const characterIds = new Set((config.characters ?? []).map(def => def.id));
@@ -47,7 +48,12 @@ export async function createRpgGame(config) {
   const ammoDefaults = () => new Map(kit.flatMap((ability, slot) => kindOf(ability) === "ranged" && ability.ammo
     ? [[slot, { clip: ability.ammo.clip, reserve: ability.ammo.reserve ?? Infinity, reloadUntil: 0 }]] : []));
   let ammo = ammoDefaults();
-  const scheme = rpgControlScheme(config), bindings = rpgBindings(scheme).filter(b => b.feature !== "reload" || ammo.size);
+  const stalkers = (config.characters ?? []).some(def => def.enemy === "stalker"), walkSpeed = config.player?.speed ?? 5, runSpeed = config.player?.runSpeed ?? 8;
+  const features = { reload: ammo.size > 0, sneak: stalkers };
+  const scheme = rpgControlScheme(config), bindings = rpgBindings(scheme).filter(b => !b.feature || features[b.feature]);
+  // Stalkers default to unkillable, the usual horror case.
+  const maxHealthOf = def => def.health ?? (def.enemy === "stalker" ? Infinity : 30);
+  const calm = () => ({ mode: "patrol", threat: 0, searchLeft: 0 });
   const crosshair = view === "first" || kit.some(ability => kindOf(ability) === "ranged");
   const effects = [], shots = [], tracerGeometry = new THREE.BoxGeometry(.035, .035, 1).translate(0, 0, .5), shotGeometry = new THREE.SphereGeometry(.12, 10, 8);
   // Buttons and keyboard input share the same slot without UI-side index arithmetic.
@@ -83,7 +89,7 @@ export async function createRpgGame(config) {
   function failure(error) { console.error(error); notice(error.message ?? error); }
   function targetState(actor) {
     if (!actor || actor.dead) return null;
-    const maxHealth = actor.def.health ?? 30;
+    const maxHealth = maxHealthOf(actor.def);
     return { id: actor.def.id, name: actor.def.name ?? actor.def.id, enemy: !!actor.def.enemy, health: actor.health,
       maxHealth, healthFraction: maxHealth > 0 ? Math.max(0, Math.min(1, actor.health / maxHealth)) : 0 };
   }
@@ -94,12 +100,15 @@ export async function createRpgGame(config) {
       : dialogue ? "dialogue" : reasons.includes("ready") ? "ready" : session.playing ? "playing" : "paused";
     for (const [id, until] of combatHealth) if (until <= time || actors.get(id)?.dead) combatHealth.delete(id);
     const combatTargets = [...combatHealth.keys()].map(id => targetState(actors.get(id))).filter(Boolean);
-    const nearby = phase === "playing" ? nearestInteraction() : null;
+    const nearby = phase === "playing" ? (hidden ? hideSpot : nearestInteraction()) : null;
+    const hunting = [...actors.values()].filter(actor => actor.stalk && !actor.dead).map(actor => actor.stalk);
+    const alert = ["chase", "search", "suspicious"].find(mode => hunting.some(stalk => stalk.mode === mode));
     presentation.update({ phase, reasons, title: config.title ?? "Adventure", description: config.description ?? "",
       health, maxHealth: config.player?.health ?? 100, currency: progress.currency, quests: progress.quests,
       target: combatTargets.at(-1) ?? targetState(actors.get(selected)), combatTargets,
       interaction: nearby && { id: nearby.def.id, name: nearby.def.name ?? nearby.def.id,
-        action: nearby.def.item ? "Collect" : characterIds.has(nearby.def.id) ? "Talk to" : "Interact with" },
+        action: nearby.def.hide ? (hidden ? "Leave" : "Hide in") : nearby.def.item ? "Collect" : characterIds.has(nearby.def.id) ? "Talk to" : "Interact with" },
+      threat: Math.max(0, ...hunting.map(stalk => stalk.threat)), alert: { chase: "hunted", search: "searching" }[alert] ?? alert ?? "", hidden, sneaking,
       abilities: abilities.map(ability => {
         const rounds = ammo.get(ability.slot);
         return { ...ability, remaining: Math.max(0, (cooldowns.get(ability.slot) ?? 0) - time, (rounds?.reloadUntil ?? 0) - time),
@@ -163,9 +172,11 @@ export async function createRpgGame(config) {
   }
   function interact() {
     if (!session.playing) return;
+    if (hidden) { setHidden(null); return; }
     const actor = nearestInteraction();
     if (!actor) { notice("Move closer to someone or something you can interact with."); return; }
     const def = actor.def;
+    if (def.hide) { setHidden(actor); return; }
     progress.event("talk", def.id); progress.deliver(def.id);
     if (def.item) { progress.collect(def.item, def.count ?? 1); actor.dead = true; actor.root.visible = false; actor.body?.remove(); if (selected === def.id) select(null); notice(`Collected ${def.name ?? def.item}`); return; }
     if (def.onInteract) { try { def.onInteract(api); } catch (error) { failure(error); } return; }
@@ -179,6 +190,20 @@ export async function createRpgGame(config) {
         : { label: `Accept: ${q.title ?? q.id}`, accept: q.id })],
     });
     else notice(def.description ?? def.name ?? def.id);
+  }
+  function applySpeed() {
+    const walk = hidden ? 0 : sneaking ? walkSpeed * .5 : walkSpeed;
+    player.setMoveSpeed(walk, hidden || sneaking ? walk : runSpeed);
+  }
+  /** Hiding holds the player in place beside the spot; only stalkers are fooled by it. */
+  function setHidden(spot) {
+    hidden = !!spot; hideSpot = spot;
+    if (view !== "first") player.visual.visible = !hidden;
+    applySpeed(); refresh();
+  }
+  function setSneak(on) {
+    if (!stalkers || sneaking === on || !player) return;
+    sneaking = on; applySpeed(); refresh();
   }
   function nearestInteraction() {
     if (!player) return null;
@@ -201,6 +226,8 @@ export async function createRpgGame(config) {
   const chest = actor => actor.position().add(new THREE.Vector3(0, (actor.def.height ?? 1.8) * .55, 0));
   function hitEnemy(actor, ability, alert = false) {
     // A shot from beyond aggro range still provokes; melee keeps its proximity rules.
+    if (actor.stalk) { actor.stalk = stepStalker({ mode: "chase" }, { seen: true }, 0, actor.def); actor.lastKnown = player.position; }
+    if (!Number.isFinite(actor.health)) { config.onHit?.(actor, ability, api); return; }
     actor.health = Math.max(0, actor.health - (ability.damage ?? 10)); if (alert) actor.alertUntil = time + 8;
     combatHealth.delete(actor.def.id); combatHealth.set(actor.def.id, time + 5);
     if (!actor.health) {
@@ -257,7 +284,7 @@ export async function createRpgGame(config) {
   }
   function attack(index = 0) {
     if (disposed || !session?.playing) return;
-    const ability = kit[index]; if (!ability) return;
+    const ability = kit[index]; if (!ability || hidden) return;
     const kind = kindOf(ability), rounds = ammo.get(index);
     // Held-down firing retries often, so ranged attacks recover silently.
     if ((cooldowns.get(index) ?? 0) > time || rounds?.reloadUntil) { if (kind !== "ranged") notice("Ability is recovering."); return; }
@@ -283,10 +310,10 @@ export async function createRpgGame(config) {
     ability.effect?.(api); refresh();
   }
   function respawn() {
-    combatHealth.clear(); ammo = ammoDefaults();
+    combatHealth.clear(); ammo = ammoDefaults(); sneaking = false; setHidden(null);
     for (const shot of shots.splice(0)) removeMesh(shot.mesh);
     player.teleport(config.checkpoint ?? spawn); health = config.player?.health ?? 100;
-    for (const actor of actors.values()) if (actor.npc && !actor.dead) { actor.npc.teleport(actor.home.toArray()); actor.npc.setVelocity([0, 0, 0]); actor.health = actor.def.health ?? 30; }
+    for (const actor of actors.values()) if (actor.npc && !actor.dead) { actor.npc.teleport(actor.home.toArray()); actor.npc.setVelocity([0, 0, 0]); actor.health = maxHealthOf(actor.def); if (actor.stalk) actor.stalk = calm(); }
     session.release("dead"); session.hold("pause"); refresh();
   }
   function restart() { if (!restartPromise) { dispose(); restartPromise = createRpgGame(config); } return restartPromise; }
@@ -309,7 +336,7 @@ export async function createRpgGame(config) {
     for (const resource of resources) resource.dispose(); renderer?.dispose(); root.remove();
   }
   const api = { scene, camera, root, assets, actors, progress, model, addSurface, addProp, addDecoration, removeProp, select, interact, attack, reload, addAmmo, damage, showDialogue, closeDialogue, notice, dispose, restart,
-    get player() { return player; }, get world() { return world; }, get renderer() { return renderer; }, get session() { return session; }, get selected() { return selected; }, get health() { return health; },
+    get player() { return player; }, get world() { return world; }, get renderer() { return renderer; }, get session() { return session; }, get selected() { return selected; }, get health() { return health; }, get hidden() { return hidden; },
     onDispose: fn => cleanups.push(fn),
   };
   try {
@@ -379,8 +406,8 @@ export async function createRpgGame(config) {
         body = world.addBody({ type: "fixed", position: home.clone().add(new THREE.Vector3(0, (def.height ?? 1.8) / 2, 0)).toArray(), shape: { type: "box", size: [def.width ?? .8, def.height ?? 1.8, def.width ?? .8] }, data: { rpgId: def.id } });
       }
       visual.traverse(n => { if (n.isMesh) { n.castShadow = true; n.receiveShadow = true; } }); scene.add(visual);
-      const interactable = def.interactable ?? !!(interactionIds.has(def.id) || def.item || def.dialogue || def.onInteract);
-      actors.set(def.id, { def, body, root: visual, npc, home, position: () => npc ? npc.position : home.clone(), health: def.health ?? 30, dead: false, interactable, nextAttack: 0, alertUntil: 0, waypoint: 0 });
+      const interactable = def.interactable ?? !!(interactionIds.has(def.id) || def.item || def.dialogue || def.onInteract || def.hide);
+      actors.set(def.id, { def, body, root: visual, npc, home, position: () => npc ? npc.position : home.clone(), health: maxHealthOf(def), dead: false, interactable, nextAttack: 0, alertUntil: 0, waypoint: 0, ...(def.enemy === "stalker" && { stalk: calm(), lastKnown: null }) });
     }
     for (const q of progress.quests) {
       if (q.giver && !actors.has(q.giver)) throw new Error(`Quest ${q.id} has unknown giver ${q.giver}.`);
@@ -390,7 +417,7 @@ export async function createRpgGame(config) {
       }
       if (q.autoStart) progress.accept(q.id);
     }
-    session = createRpgSession({ suspend: () => player.pause(), resume: () => player.resume(), changed: refresh });
+    session = createRpgSession({ suspend: () => { player.pause(); setSneak(false); }, resume: () => player.resume(), changed: refresh });
     function resize() { camera.aspect = root.clientWidth / Math.max(1, root.clientHeight); camera.updateProjectionMatrix(); renderer.setSize(root.clientWidth, root.clientHeight); }
     listen(window, "resize", resize); resize();
     listen(window, "blur", () => session.hold("focus"));
@@ -401,9 +428,46 @@ export async function createRpgGame(config) {
       if (!session.playing) return;
       if (event.code === "KeyF") { event.preventDefault(); interact(); }
       if (event.code === "KeyR" && ammo.size) { event.preventDefault(); reload(); }
+      if (event.code === "KeyC") setSneak(true);
       const action = bindings.find(b => b.code === event.code && b.slot !== undefined); if (action) { event.preventDefault(); attack(action.slot); }
     });
-    const zones = new Set();
+    listen(window, "keyup", event => { if (event.code === "KeyC") setSneak(false); });
+    const zones = new Set(), lastPlayer = player.position;
+    let moving = false, running = false;
+    function patrolGoal(actor, pos) {
+      if (!actor.def.patrol?.length) return actor.home;
+      const goal = new THREE.Vector3(...actor.def.patrol[actor.waypoint]);
+      if (pos.distanceTo(goal) < .7) actor.waypoint = (actor.waypoint + 1) % actor.def.patrol.length;
+      return goal;
+    }
+    /** Returns a movement goal, or null when the stalker stands still this step. */
+    function stalk(actor, dt, pos, delta, distance) {
+      const def = actor.def, flat = new THREE.Vector3(delta.x, 0, delta.z), before = actor.stalk.mode;
+      const bearing = flat.lengthSq() > 1e-8 ? actor.npc.forward.angleTo(flat.normalize()) : 0;
+      const eye = player.position.add(new THREE.Vector3(0, playerHeight * .6, 0)), sight = distance <= Math.max(def.sight ?? 14, def.hearing ?? 6) + 1
+        && world.castSegment(eye, chest(actor), { exclude: player.body });
+      const clear = sight === false ? false : !sight || sight.body === actor.body;
+      const senses = stalkerSenses({ distance, bearing, clear, hidden, moving, running, sneaking, mode: before }, def);
+      actor.stalk = stepStalker(actor.stalk, senses, dt, def);
+      if (senses.seen || senses.heard) actor.lastKnown = player.position;
+      const mode = actor.stalk.mode, still = () => { actor.npc.setVelocity([0, 0, 0]); return null; };
+      if (mode !== before) config.onAlert?.(actor, { chase: "hunted", search: "searching" }[mode] ?? mode, api);
+      if (mode === "chase") {
+        const reach = def.attackRange ?? 1.6;
+        if (senses.seen && distance <= reach && reachable(actor, reach)) {
+          still(); actor.npc.faceDirection(delta.toArray());
+          if (time >= actor.nextAttack) { actor.nextAttack = time + (def.attackCooldown ?? 1.5); damage(def.damage ?? 25); if (hidden && health) setHidden(null); }
+          return null;
+        }
+        return { goal: actor.lastKnown, speed: def.chaseSpeed ?? 4.5 };
+      }
+      if (mode === "search") {
+        if (actor.lastKnown && pos.distanceTo(actor.lastKnown) > 1) return { goal: actor.lastKnown, speed: (def.speed ?? 2) * 1.3 };
+        still(); actor.npc.faceDirection([Math.sin(time * 1.5), 0, Math.cos(time * 1.5)]); return null;
+      }
+      if (mode === "suspicious") { still(); if (actor.lastKnown) actor.npc.faceDirection(actor.lastKnown.clone().sub(pos).toArray()); return null; }
+      return { goal: patrolGoal(actor, pos), speed: def.speed ?? 2 };
+    }
     function fireAt(actor) {
       const def = actor.def, from = chest(actor), speed = def.projectileSpeed ?? 14;
       const mesh = new THREE.Mesh(shotGeometry, new THREE.MeshBasicMaterial({ color: def.projectileColor ?? "#ff7a45" }));
@@ -413,6 +477,8 @@ export async function createRpgGame(config) {
       shots.push({ mesh, velocity, left: (def.attackRange ?? 14) * 1.5 / speed, damage: def.damage ?? 6 });
     }
     function step(dt) {
+      const now = player.position, speed = dt > 0 ? Math.hypot(now.x - lastPlayer.x, now.z - lastPlayer.z) / dt : 0; lastPlayer.copy(now);
+      moving = speed > .5; running = speed > walkSpeed * 1.15;
       for (const [index, rounds] of ammo) if (rounds.reloadUntil && time >= rounds.reloadUntil) {
         const moved = Math.min(kit[index].ammo.clip - rounds.clip, rounds.reserve);
         rounds.clip += moved; rounds.reserve -= moved; rounds.reloadUntil = 0;
@@ -429,8 +495,11 @@ export async function createRpgGame(config) {
         if (!actor.npc || actor.dead) continue;
         const pos = actor.position(), delta = player.position.sub(pos), distance = delta.length(), ranged = actor.def.enemy === "ranged";
         const range = actor.def.attackRange ?? (ranged ? 14 : 2);
-        let goal = actor.home;
-        if (actor.def.enemy && (distance < (actor.def.aggroRange ?? (ranged ? 16 : 10)) || actor.alertUntil > time) && pos.distanceTo(actor.home) < (actor.def.leash ?? 20)) {
+        let goal = actor.home, speed = actor.def.speed ?? 2.5;
+        if (actor.stalk) {
+          const plan = stalk(actor, dt, pos, delta, distance); if (!plan) continue;
+          ({ goal, speed } = plan);
+        } else if (actor.def.enemy && (distance < (actor.def.aggroRange ?? (ranged ? 16 : 10)) || actor.alertUntil > time) && pos.distanceTo(actor.home) < (actor.def.leash ?? 20)) {
           if (distance <= range && reachable(actor, range)) {
             actor.npc.setVelocity([0, 0, 0]); actor.npc.faceDirection(delta.toArray());
             if (time >= actor.nextAttack) {
@@ -440,12 +509,9 @@ export async function createRpgGame(config) {
             continue;
           }
           goal = player.position;
-        } else if (actor.def.patrol?.length) {
-          goal = new THREE.Vector3(...actor.def.patrol[actor.waypoint]);
-          if (pos.distanceTo(goal) < .7) actor.waypoint = (actor.waypoint + 1) % actor.def.patrol.length;
-        }
+        } else goal = patrolGoal(actor, pos);
         const direction = goal.clone().sub(pos); direction.y = 0;
-        if (direction.length() > .4) direction.normalize().multiplyScalar(actor.def.speed ?? 2.5); else direction.set(0, 0, 0);
+        if (direction.length() > .4) direction.normalize().multiplyScalar(speed); else direction.set(0, 0, 0);
         actor.npc.setVelocity(direction.toArray());
       }
       for (const z of config.zones ?? []) {
