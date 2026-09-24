@@ -10,7 +10,7 @@ function releaseRetiredLock(doc) {
 // Mouse capture is an enhancement, never a prerequisite for entering the game.
 export function createPointerControls({canvas, getState, enter, pause, look,
   fire, release, resetInput, modeChanged, pendingChanged = () => {},
-  doc = document, win = window, timeoutMs = 700}) {
+  doc = document, win = window, timeoutMs = 700, lockPointer = true}) {
   const owner = {};
   pointerOwners.set(canvas, owner); retiredCanvases.delete(canvas);
   if (!guardedDocuments.has(doc)) {
@@ -58,7 +58,8 @@ export function createPointerControls({canvas, getState, enter, pause, look,
     const token = ++epoch;
     wantsLock = true; pending = true; pendingChanged(true); clearInput();
     if (locked()) { activate('locked', token); return; }
-    if (typeof canvas.requestPointerLock !== 'function') { fallback(token); return; }
+    // Touch play has no mouse to capture; its overlay supplies look input.
+    if (!lockPointer || typeof canvas.requestPointerLock !== 'function') { fallback(token); return; }
     timer = setTimeout(() => fallback(token), timeoutMs);
     try {
       // Keep this call inside the original trusted click gesture. Older engines

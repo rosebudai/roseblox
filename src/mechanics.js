@@ -217,6 +217,8 @@ export async function createMechanics(options = {}) {
       for (const name of ["active", "enabled", "locked"]) Object.defineProperty(handle, name, { get: () => entry.third[name] });
       for (const name of ["start", "stop", "pause", "resume"]) handle[name] = () => entry.third[name]();
       handle.setAction = (action, enabled) => { requireEntry(handle); entry.input.setAction(action, enabled); };
+      handle.setAxis = (x, z) => { requireEntry(handle); entry.input.setAxis(x, z); };
+      handle.look = (dx, dy) => { requireEntry(handle); entry.third.look(dx, dy); };
       handle.setMoveSpeed = (walk, run = walk) => {
         requireEntry(handle);
         const speed = positive(walk, "speed", true), runSpeed = positive(run, "runSpeed", true);
@@ -250,6 +252,8 @@ export async function createMechanics(options = {}) {
         start: () => { live(); entry.fps.start(); }, stop: () => entry.fps.stop(),
         pause: () => entry.fps.pause(), resume: () => { live(); entry.fps.resume(); },
         setAction: (action, enabled) => { requireEntry(handle); entry.input.setAction(action, enabled); },
+        setAxis: (x, z) => { requireEntry(handle); entry.input.setAxis(x, z); },
+        look: (dx, dy) => { requireEntry(handle); entry.fps.look(dx, dy); },
         setMoveSpeed: (walk, run = walk) => {
           requireEntry(handle);
           entry.speed = positive(walk, "speed", true); entry.runSpeed = positive(run, "runSpeed", true);

@@ -5,15 +5,15 @@ import {fileURLToPath} from 'node:url';
 import {chromium} from '@playwright/test';
 const root=fileURLToPath(new URL('../',import.meta.url)), output=process.env.RPG_UI_EVIDENCE??'/tmp/roseblox-rpg-stalker-evidence';
 await mkdir(output,{recursive:true});
-const server=spawn('python3',['-m','http.server','4339','--bind','127.0.0.1'],{cwd:root,stdio:'ignore'});
+const server=spawn('python3',['-m','http.server','4341','--bind','127.0.0.1'],{cwd:root,stdio:'ignore'});
 let browser;
 const checks=[], errors=[];
 try{
- for(let i=0;i<40;i++){if(await fetch('http://127.0.0.1:4339/').then(r=>r.ok).catch(()=>false))break;await new Promise(r=>setTimeout(r,100));}
+ for(let i=0;i<40;i++){if(await fetch('http://127.0.0.1:4341/').then(r=>r.ok).catch(()=>false))break;await new Promise(r=>setTimeout(r,100));}
  browser=await chromium.launch({headless:true,executablePath:process.env.CANARY_CHROMIUM_EXECUTABLE,args:['--no-sandbox','--use-angle=swiftshader','--enable-unsafe-swiftshader']});
  async function open(query){
   const page=await browser.newPage({viewport:{width:1280,height:800}});page.on('pageerror',e=>errors.push(e.message));
-  await page.goto(`http://127.0.0.1:4339/examples/rpg-template/?stalker=1&${query}`);
+  await page.goto(`http://127.0.0.1:4341/examples/rpg-template/?stalker=1&${query}`);
   await page.getByRole('button',{name:'Play',exact:true}).click();
   await page.waitForFunction(()=>window.fixture.player.grounded&&window.fixture.player.active);
   return page;

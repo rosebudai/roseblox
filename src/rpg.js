@@ -1,6 +1,7 @@
 import * as THREE from "three";
 import { createMechanics } from "./mechanics.js";
 import { RPG_MOVEMENT_DEFAULTS } from "./rpgProfile.js";
+import { createTouchControls, touchPreferred } from "./touchControls.js";
 export { queryMeleeTargets, queryRangedTarget } from "./rpgCombat.js";
 
 function positive(value, name) {
@@ -30,8 +31,9 @@ export function fitRpgModel(model, { height = 1.8, yaw = 0 } = {}) {
 }
 
 /** RPG-specific surface over the shared physics motor; no rendering or game rules. */
-export async function createRpgWorld(options = {}) {
+export async function createRpgWorld({ playerDefaults = {}, ...options } = {}) {
   const mechanics = await createMechanics({ ...options, gravity: options.gravity ?? [0, RPG_MOVEMENT_DEFAULTS.gravity, 0] });
+  const overlays = new Set();
   function prepareActor(model, feet, height, radius, modelYaw) {
     positive(height, "height"); positive(radius, "radius");
     if (height < 2 * radius) throw new Error("Actor height must be at least twice its radius.");
@@ -55,21 +57,27 @@ export async function createRpgWorld(options = {}) {
       remove: () => { body.remove(); root.removeFromParent(); },
     };
   }
-  async function addPlayer({ model, feet = [0, 0, 0], height = 1.8, radius = .35, modelYaw = 0, view = "third", ...controls }) {
+  async function addPlayer(config) {
+    const { model, feet = [0, 0, 0], height = 1.8, radius = .35, modelYaw = 0, view = "third", touch = "auto", touchButtons = [], ...controls } = { ...playerDefaults, ...config };
     if (!["third", "first"].includes(view)) throw new Error("view must be third or first.");
+    if (!["auto", true, false].includes(touch)) throw new Error("touch must be auto, true or false.");
+    if (!Array.isArray(touchButtons)) throw new Error("touchButtons must be an array.");
+    // Touch play drives the same player through an overlay instead of a captured mouse.
+    const useTouch = touch === "auto" ? touchPreferred(controls.canvas?.ownerDocument?.defaultView) : touch;
+    const jumpSpeed = controls.jumpSpeed ?? RPG_MOVEMENT_DEFAULTS.jumpSpeed;
     const { spawn, visual } = prepareActor(model, feet, height, radius, modelYaw);
     let body;
     try {
       // First person keeps the fitted body for its collider/pose but never draws it over the camera.
       if (view === "first") body = await mechanics.addFpsPlayer({
         camera: controls.camera, canvas: controls.canvas, position: spawn.toArray(), radius, height: height - 2 * radius,
-        speed: controls.speed, runSpeed: controls.runSpeed, jumpSpeed: controls.jumpSpeed ?? RPG_MOVEMENT_DEFAULTS.jumpSpeed,
+        speed: controls.speed, runSpeed: controls.runSpeed, jumpSpeed, lockPointer: !useTouch,
         eyeOffset: [0, height * .42, 0], yaw: controls.yaw ?? 0, pitch: controls.pitch ?? 0, sensitivity: controls.sensitivity, onFire: controls.onAttack,
       });
       else body = await mechanics.addThirdPersonPlayer({
         ...controls, position: spawn.toArray(), radius, height: height - 2 * radius, forwardAxis: "+Z",
-        controlMode: controls.controlMode ?? "mmo",
-        jumpSpeed: controls.jumpSpeed ?? RPG_MOVEMENT_DEFAULTS.jumpSpeed, facing: controls.facing ?? "camera",
+        controlMode: controls.controlMode ?? "mmo", lockPointer: !useTouch,
+        jumpSpeed, facing: controls.facing ?? "camera",
         targetOffset: controls.targetOffset ?? [0, height * .3, 0],
       });
     } catch (error) {
@@ -79,11 +87,21 @@ export async function createRpgWorld(options = {}) {
     }
     const actor = attachActor(body, visual, height, view === "first" ? "-Z" : "+Z");
     if (view === "first") visual.visible = false;
+    let overlay = null;
+    try {
+      if (useTouch) overlay = createTouchControls({ canvas: controls.canvas, player: body, jump: jumpSpeed > 0, buttons: touchButtons });
+    } catch (error) { actor.remove(); throw error; }
+    if (overlay) overlays.add(overlay);
+    const remove = actor.remove;
     Object.defineProperties(actor, {
       active: { get: () => body.active },
       locked: { get: () => body.locked },
+      touch: { value: !!overlay },
     });
     return Object.assign(actor, {
+      remove: () => { if (overlay) { overlays.delete(overlay); overlay.dispose(); overlay = null; } remove(); },
+      look: (dx, dy) => body.look(dx, dy),
+      setAxis: (x, z) => body.setAxis(x, z),
       start: () => body.start(), stop: () => body.stop(),
       pause: () => body.pause(), resume: () => body.resume(),
       setAction: (name, down) => body.setAction(name, down),
@@ -109,8 +127,16 @@ export async function createRpgWorld(options = {}) {
     castRay: mechanics.castRay,
     castSegment: mechanics.castSegment,
     onCollision: mechanics.onCollision,
-    advance: mechanics.advance,
+    advance(dt, config) {
+      const result = mechanics.advance(dt, config);
+      for (const overlay of overlays) overlay.sync();
+      return result;
+    },
     getDiagnostics: mechanics.getDiagnostics,
-    dispose: mechanics.dispose,
+    dispose() {
+      for (const overlay of overlays) overlay.dispose();
+      overlays.clear();
+      mechanics.dispose();
+    },
   };
 }

@@ -3,12 +3,12 @@ import { createPointerControls } from "./fpsInput.js";
 
 const canvasOwners = new WeakMap();
 export function firstPersonOptions(options = {}) {
-  const { eyeOffset = [0, 0.55, 0], sensitivity = 23e-4, yaw = 0, pitch = 0, hideBody = true, onFire } = options;
+  const { eyeOffset = [0, 0.55, 0], sensitivity = 23e-4, yaw = 0, pitch = 0, hideBody = true, onFire, lockPointer = true } = options;
   if (!Array.isArray(eyeOffset) || eyeOffset.length !== 3 || !eyeOffset.every(Number.isFinite)) throw new Error("First-person eyeOffset must contain three finite numbers.");
   if (!Number.isFinite(sensitivity) || sensitivity <= 0) throw new Error("First-person sensitivity must be positive.");
   if (!Number.isFinite(yaw) || !Number.isFinite(pitch)) throw new Error("First-person yaw/pitch must be finite radians.");
   if (onFire !== void 0 && typeof onFire !== "function") throw new Error("First-person onFire must be a function.");
-  return { eyeOffset: new THREE.Vector3(...eyeOffset), sensitivity, yaw, pitch, hideBody, onFire };
+  return { eyeOffset: new THREE.Vector3(...eyeOffset), sensitivity, yaw, pitch, hideBody, onFire, lockPointer };
 }
 export function createFirstPersonCamera({ entity, camera, controls, canvas, input, world, onDispose, getPosition = () => entity.transform.position }, options) {
   const document2 = canvas.ownerDocument;
@@ -33,6 +33,7 @@ export function createFirstPersonCamera({ entity, camera, controls, canvas, inpu
   }
   const mouse = createPointerControls({
     canvas,
+    lockPointer: options.lockPointer !== false,
     doc: document2,
     win: document2.defaultView,
     getState: () => active() ? "playing" : enabled ? "paused" : "ready",
@@ -79,6 +80,13 @@ export function createFirstPersonCamera({ entity, camera, controls, canvas, inpu
     },
     get error() {
       return null;
+    },
+    /** Host look input (touch drag, gamepad) in mouse pixels. */
+    look(dx, dy) {
+      if (!active()) return;
+      yaw -= dx * options.sensitivity;
+      pitch = clampPitch(pitch - dy * options.sensitivity);
+      applyCamera();
     },
     ownsHiddenVisual(owner) {
       return !disposed && owner === entity && hidden?.mesh === owner.mesh;
