@@ -35,13 +35,17 @@ renderer.setAnimationLoop(time => {
 - Desktop: WASD or arrows move relative to the camera, mouse looks (the pointer is
   captured after `start()`; if capture is refused, free-mouse look with edge turning
   takes over), Shift runs, Space jumps, wheel zooms in third person.
-- Any touchscreen, including touch laptops (detected automatically): drag on the left
-  half for an analog joystick, drag on the right half to look, and tap Jump. The overlay covers the canvas at
-  `z-index: 50` only while the player is active; put menus and HUD buttons above 50.
-  Add game actions as `touchButtons: [{label:'Attack', onPress, onRelease}]` or
-  `{label:'Run', action:'run'}`. Force it with `touch: true|false`.
+- Any touchscreen, including touch laptops, gets on-screen controls automatically while
+  the player is active: drag on the left half for an analog joystick, drag on the right
+  half to look, and tap Jump. Leave `touch` unset; only a mobile game passes `touch: true`
+  so desktop previews show them too (a mouse keeps working normally). Add game actions as
+  `touchButtons: [{label:'Attack', onPress, onRelease}]` or `{label:'Run', action:'run'}`.
+  Jump and these buttons stack up from the bottom-right corner (about 100px wide and 90px
+  per button, `z-index: 50`), so keep HUD buttons such as pause or mute out of that corner;
+  top corners are free. Touches on your own buttons and links go to them, not the controls.
 - Escape, window blur and hidden tabs pause. Show pause UI when `player.active` is false
-  and call `player.start()` from a button to resume. On touch, add a visible pause button.
+  and call `player.start()` from a button to resume. On touch, add a visible pause button
+  in a top corner.
 - For dialogue, menus and cutscenes call `player.pause()`, then `player.resume()`.
 
 Options: `speed` (5), `runSpeed` (8), `jumpSpeed` (7, 0 disables jumping and the Jump

@@ -49,6 +49,23 @@ try{
  assert.ok(Math.hypot(...(await pos(page)).map((v,i)=>v-k0[i]))>.5);checks.push('touch laptop shows overlay and keeps keyboard');
  await context.close();
 
+ // Mouse with a forced overlay (a mobile game previewed on desktop) and pointer lock refused: the mouse
+ // still drives free look and never the stick, and the on-screen buttons still click.
+ ({page,context}=await open('touch=1',false));
+ await page.evaluate(()=>{HTMLCanvasElement.prototype.requestPointerLock=()=>Promise.reject(new DOMException('refused','NotAllowedError'));});
+ await page.getByRole('button',{name:'Play',exact:true}).click();
+ await page.waitForFunction(()=>window.fixture.player.active&&window.fixture.player.grounded);await wait(page,2);
+ assert.equal(await overlay(page),'block');
+ const m0=await pos(page),mYaw=await yaw(page);
+ await page.mouse.move(300,400);await page.mouse.down();for(const x of [340,380,420,460])await page.mouse.move(x,380);await wait(page,20);await page.mouse.up();
+ assert.ok(Math.hypot(...(await pos(page)).map((v,i)=>v-m0[i]))<.05,'a left-half mouse drag does not walk');
+ for(const x of [800,760,720,680])await page.mouse.move(x,400);await wait(page,2);
+ assert.ok(Math.abs(await yaw(page)-mYaw)>.05,'free mouse look turns the camera over the overlay');
+ assert.ok(await page.evaluate(()=>window.fixture.player.active),'moving onto the overlay does not pause');
+ await page.locator('[data-roseblox-touch="button"]',{hasText:'Use'}).click();
+ assert.deepEqual(await page.evaluate(()=>window.fixture.presses),['use']);checks.push('mouse passes through a forced overlay');
+ await context.close();
+
  // Touch: overlay only while playing, no pointer lock, analog stick, look drag, both at once, buttons.
  let cdp;({page,context,cdp}=await open('',true));
  assert.equal(await page.evaluate(()=>window.fixture.player.touch),true);checks.push('touch detected automatically');
@@ -62,9 +79,10 @@ try{
  const half=await walk(-26), full=await walk(-60);
  assert.ok(half>.5&&full>half*1.5,`half stick ${half} vs full ${full}`);checks.push('analog joystick');
  const y0=await yaw(page);
+ await page.evaluate(()=>{const hud=document.createElement('div');hud.id='hud';Object.assign(hud.style,{position:'fixed',inset:'0',zIndex:'10'});document.body.append(hud);});
  await touch(cdp,'touchStart',[[600,200,2]]);for(const x of [640,680,720])await touch(cdp,'touchMove',[[x,200,2]]);await touch(cdp,'touchEnd',[]);
  await wait(page,2);
- assert.ok(Math.abs(await yaw(page)-y0)>.2,'right-side drag turns the camera');checks.push('touch look');
+ assert.ok(Math.abs(await yaw(page)-y0)>.2,'right-side drag turns the camera');checks.push('touch look through a HUD layer');
  const a=await pos(page), y1=await yaw(page);
  await touch(cdp,'touchStart',[[150,250,3]]);await touch(cdp,'touchStart',[[150,250,3],[600,200,4]]);
  await touch(cdp,'touchMove',[[150,200,3],[600,200,4]]);
