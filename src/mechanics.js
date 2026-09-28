@@ -15,10 +15,12 @@ function positive(value, name, zero = false) {
 }
 const RUN_AXIS = .9;
 const components = ["x", "y", "z"];
+// On the prototype, so clone() and other Vector3 methods that build a new vector keep index access.
+class ReadableVector3 extends THREE.Vector3 {}
+for (let i = 0; i < 3; i++) Object.defineProperty(ReadableVector3.prototype, i, { get() { return this[components[i]]; }, set(value) { this[components[i]] = value; } });
 /** Vectors handed to game code read as `v.x` or `v[0]`, since inputs take `[x, y, z]`. */
 export function readable(v) {
-  for (let i = 0; i < 3; i++) Object.defineProperty(v, i, { get() { return this[components[i]]; }, set(value) { this[components[i]] = value; }, configurable: true });
-  return v;
+  return new ReadableVector3(v.x, v.y, v.z);
 }
 function vector(value, fallback = [0, 0, 0]) {
   value ??= fallback;
@@ -429,7 +431,7 @@ export async function createMechanics(options = {}) {
       if (direct && (!hit || direct.timeOfImpact < hit.timeOfImpact)) hit = { ...direct, collider };
     }
     if (!hit) return null;
-    return { body: colliders.get(hit.collider.handle), point: o.addScaledVector(d, hit.timeOfImpact), normal: vector(hit.normal), distance: hit.timeOfImpact };
+    return { body: colliders.get(hit.collider.handle), point: readable(o.addScaledVector(d, hit.timeOfImpact)), normal: readable(hit.normal), distance: hit.timeOfImpact };
   }
   const api = {
     addBody, addCharacter, addFpsPlayer, addThirdPersonPlayer, addArcadeVehicle, castRay,

@@ -173,7 +173,7 @@ test("a descending moveTo platform keeps its rider grounded, so Jump still works
   assert.ok(rose, "the jump is used"); assert.equal(unused, 0, "a used jump is not reported as jumpPressed");
 });
 
-test("player position, velocity and forward read as .x or [0], like the [x, y, z] inputs", async t => {
+test("player position, velocity, forward, their clones and ray hits read as .x or [0], like the [x, y, z] inputs", async t => {
   const { world, player } = await playing(t);
   player.setAxis(1, 0); advance(world, .2);
   for (const name of ["position", "velocity", "forward"]) {
@@ -182,6 +182,10 @@ test("player position, velocity and forward read as .x or [0], like the [x, y, z
   }
   const v = player.velocity; player.setVelocity([v[0], 6, v[2]]);
   assert.equal(player.velocity[1], 6);
+  const hit = world.castRay([0, 5, 0], [0, -1, 0], { exclude: player.body });
+  const copies = { clone: player.position.clone(), point: hit.point, normal: hit.normal, "point.clone": hit.point.clone() };
+  for (const [name, c] of Object.entries(copies)) assert.deepEqual([c[0], c[1], c[2]], [c.x, c.y, c.z], name);
+  assert.equal(hit.normal[1], 1);
 });
 
 test("pushing the analog stick to its edge runs, so touch play can reach run speed", async t => {
