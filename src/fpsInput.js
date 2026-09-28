@@ -110,9 +110,14 @@ export function createPointerControls({canvas, getState, enter, pause, look,
     retryLock();
   });
   listen(doc, 'mouseup', event => { if (event.button === 0) release(); });
+  // A tap on the game's own HTML sends compatibility mouse events, including a mouseleave;
+  // only a real mouse leaving pauses, and touch-only play has no mouse to leave.
+  let touchPointer = false;
+  for (const name of ['pointerdown', 'pointermove']) listen(doc, name, event => { touchPointer = event.pointerType === 'touch' || event.pointerType === 'pen'; });
   listen(canvas, 'mouseleave', event => {
+    if (mode !== 'free' || !lockPointer || touchPointer || event.sourceCapabilities?.firesTouchEvents) return;
     // The touch overlay sits over the canvas; moving onto it is not leaving the game.
-    if (mode === 'free' && !event.relatedTarget?.closest?.('[data-roseblox-touch]')) requestPause();
+    if (!event.relatedTarget?.closest?.('[data-roseblox-touch]')) requestPause();
   });
   // A cancelled pointer ends only this controller's firing and look tracking, never held
   // movement from keys, the touch stick or touch buttons.

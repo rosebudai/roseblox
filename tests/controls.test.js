@@ -278,3 +278,29 @@ test("an unrelated pointercancel or a teleport keeps held stick and button input
   player.teleport([0, 0, 5]); advance(world, .2);
   assert.ok(player.velocity.x > 7, `teleport clears motion, not held input (${player.velocity.x})`);
 });
+
+test("in free mouse look only a real mouse leaving the canvas pauses, not a tap on the game's own buttons", async t => {
+  const world = await fixture(t), browser = surface(false);
+  const player = await world.addPlayer({ ...browser, model: hero() });
+  player.start(); assert.equal(player.active, true, "no pointer lock API: free mouse look");
+  const pointer = (type, pointerType) => browser.doc.dispatchEvent(Object.assign(new Event(type), { pointerType }));
+  pointer("pointerdown", "touch");
+  browser.canvas.dispatchEvent(new Event("mouseleave"));
+  assert.equal(player.active, true, "a tap's compatibility mouseleave");
+  browser.canvas.dispatchEvent(Object.assign(new Event("mouseleave"), { sourceCapabilities: { firesTouchEvents: true } }));
+  assert.equal(player.active, true, "a mouseleave marked as coming from touch");
+  pointer("pointermove", "mouse");
+  browser.canvas.dispatchEvent(new Event("mouseleave"));
+  assert.equal(player.active, false, "a real mouse leaving");
+});
+
+test("touch-only play never pauses on mouseleave", async t => {
+  const world = await fixture(t), browser = surface(true);
+  const node = () => ({ style: {}, dataset: {}, append() {}, addEventListener() {}, remove() {}, getBoundingClientRect: () => ({ left: 0, top: 0 }) });
+  browser.doc.createElement = node; browser.doc.body = node();
+  const player = await world.addPlayer({ ...browser, model: hero(), touch: true });
+  player.start(); assert.equal(player.active, true);
+  browser.canvas.dispatchEvent(new Event("mouseleave"));
+  assert.equal(player.active, true);
+  player.remove();
+});
