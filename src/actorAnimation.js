@@ -36,7 +36,8 @@ export function createLocomotion(root, clips, { speed = 5, runSpeed = 8 } = {}) 
   }
   actions.walk ??= actions.run; actions.run ??= actions.walk;
   if (!actions.idle && !actions.walk) return null;
-  let current = null, state = null, airborne = 0, oneShot = null;
+  // `played` is a clip from play(); movement waits until it finishes or stop() ends it.
+  let current = null, state = null, airborne = 0, played = null;
   const fadeTo = (next, name) => {
     state = name;
     if (next === current) return;
@@ -45,15 +46,15 @@ export function createLocomotion(root, clips, { speed = 5, runSpeed = 8 } = {}) 
     current = next;
   };
   mixer.addEventListener("finished", event => {
-    if (event.action !== oneShot) return;
-    oneShot = null; current = null;
+    if (event.action !== played) return;
+    played = null; current = null;
     event.action.fadeOut(FADE);
   });
   return {
     mixer,
-    get state() { return oneShot ? oneShot.getClip().name : state; },
+    get state() { return played ? played.getClip().name : state; },
     setSpeeds(walk, run) { speed = walk; runSpeed = run; },
-    /** Play a clip once by name, then return to movement. Returns its duration, or null. */
+    /** Play a clip by name, once or with `loop` until stop(), then return to movement. Returns its duration, or null. */
     play(name, { fade = FADE, loop = false } = {}) {
       const clip = usable.find(c => c.name === name) ?? usable.find(c => c.name.toLowerCase() === String(name).toLowerCase());
       if (!clip) return null;
@@ -62,12 +63,16 @@ export function createLocomotion(root, clips, { speed = 5, runSpeed = 8 } = {}) 
       action.clampWhenFinished = !loop;
       action.fadeIn(fade).play();
       if (current && current !== action) current.fadeOut(fade);
-      current = action; state = clip.name; oneShot = loop ? null : action;
+      current = action; played = action;
       return clip.duration;
+    },
+    stop() {
+      if (!played) return;
+      played.fadeOut(FADE); played = null; current = null;
     },
     update(dt, { horizontalSpeed, grounded }) {
       airborne = grounded ? 0 : airborne + dt;
-      if (!oneShot) {
+      if (!played) {
         const walk = horizontalSpeed > .2 && horizontalSpeed <= (speed + runSpeed) / 2;
         const next = airborne > AIR_DELAY && actions.air ? "air"
           : horizontalSpeed <= .2 ? "idle"

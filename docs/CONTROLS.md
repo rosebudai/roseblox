@@ -84,7 +84,8 @@ axis. Pass the loaded glTF as `model` (or `model: gltf.scene, animations: gltf.a
 When it has clips named like `Idle`, `Walk`, `Run` and `Jump_Loop`, as rigged characters
 do, the player and NPCs play them automatically from speed and grounded state.
 `playAnimation('Interact')` plays any other clip once and returns to movement;
-`animation` names what is playing and `mixer` is its `THREE.AnimationMixer`. Pass
+`playAnimation('Dance', {loop: true})` repeats one until `stopAnimation()` returns to
+movement. `animation` names what is playing and `mixer` is its `THREE.AnimationMixer`. Pass
 `animate: false` to animate the model yourself. `addPlayer` fits a detached model to `height` with its feet on the ground. Never
 move or rotate `player.root` yourself; animate children of `player.visual`, and add
 equipment there: `const sword = fitModel(swordGltf.scene, {height: .8}); player.visual.add(sword);`.

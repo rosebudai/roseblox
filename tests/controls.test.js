@@ -328,3 +328,14 @@ for (const view of ["third", "first"]) test(`${view}-person start() resumes afte
   player.start(); advance(world, .1);
   assert.equal(player.active, true);
 });
+
+test("a looping playAnimation holds over movement until stopAnimation", async t => {
+  const { world, player } = await playing(t, { model: riggedHero() });
+  player.playAnimation("Wave", { loop: true });
+  player.setAxis(.5, 0); advance(world, 1.2);
+  assert.equal(player.animation, "Wave", "outlasts its clip and ignores walking");
+  player.stopAnimation(); advance(world, .1);
+  assert.equal(player.animation, "walk");
+  player.playAnimation("Wave"); player.stopAnimation();
+  assert.equal(player.animation, "walk", "also ends a one-shot early");
+});

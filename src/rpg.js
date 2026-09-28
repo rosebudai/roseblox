@@ -43,7 +43,7 @@ export async function createRpgWorld({ playerDefaults = {}, ...options } = {}) {
     const visual = fitRpgModel(model, { height, yaw: modelYaw });
     return { spawn, visual };
   }
-  /** Adds automatic movement animation, `mixer`, `animation` and `playAnimation` to an actor. */
+  /** Adds automatic movement animation, `mixer`, `animation`, `playAnimation` and `stopAnimation` to an actor. */
   function animateActor(actor, body, parts, enabled, speeds) {
     const locomotion = enabled ? createLocomotion(parts.root, parts.clips, speeds) : null;
     if (locomotion) animated.set(actor, { locomotion, body });
@@ -54,6 +54,7 @@ export async function createRpgWorld({ playerDefaults = {}, ...options } = {}) {
     });
     return Object.assign(actor, {
       playAnimation: (name, options) => locomotion?.play(name, options) ?? null,
+      stopAnimation: () => locomotion?.stop(),
       remove: () => { if (animated.delete(actor)) locomotion.dispose(); remove(); },
     });
   }
