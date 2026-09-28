@@ -267,3 +267,14 @@ test("an animated NPC removed through its body handle, such as a ray hit, stops 
   assert.equal(npc.root.parent, null, "the handle's own remove still detaches the model");
   advance(world, .1);
 });
+
+test("an unrelated pointercancel or a teleport keeps held stick and button input", async t => {
+  const world = await fixture(t), browser = surface(true);
+  const player = await world.addPlayer({ ...browser, model: hero(), feet: [0, 0, 0] });
+  player.start(); advance(world, .3);
+  player.setAxis(1, 0); player.setAction("run", true); advance(world, .2);
+  browser.doc.dispatchEvent(new Event("pointercancel")); advance(world, .2);
+  assert.ok(player.velocity.x > 7, `a cancelled pointer elsewhere does not drop the stick (${player.velocity.x})`);
+  player.teleport([0, 0, 5]); advance(world, .2);
+  assert.ok(player.velocity.x > 7, `teleport clears motion, not held input (${player.velocity.x})`);
+});

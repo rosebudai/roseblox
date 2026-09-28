@@ -114,7 +114,9 @@ export function createPointerControls({canvas, getState, enter, pause, look,
     // The touch overlay sits over the canvas; moving onto it is not leaving the game.
     if (mode === 'free' && !event.relatedTarget?.closest?.('[data-roseblox-touch]')) requestPause();
   });
-  listen(doc, 'pointercancel', () => { clearInput(); });
+  // A cancelled pointer ends only this controller's firing and look tracking, never held
+  // movement from keys, the touch stick or touch buttons.
+  listen(doc, 'pointercancel', () => { lastX = lastY = null; edgeX = 0; release(); });
   listen(canvas, 'contextmenu', event => event.preventDefault());
   listen(doc, 'keydown', event => {
     if (event.code === 'Escape') { event.preventDefault(); requestPause(); }

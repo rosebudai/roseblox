@@ -165,9 +165,10 @@ export async function createMechanics(options = {}) {
         e.body.setTranslation(p, true);
         if (e.body.isKinematic()) e.body.setNextKinematicTranslation(p);
         e.body.setLinvel({ x: 0, y: 0, z: 0 }, true); e.body.setAngvel({ x: 0, y: 0, z: 0 }, true);
-        if (e.state) { e.state.verticalVelocity = 0; e.state.grounded = false; e.state.jumpHeld = false; e.jumpRequested = false; e.velocity.set(0, 0, 0); e.boost.set(0, 0, 0); e.inputVelocity.set(0, 0, 0); e.jumpPressed = false; }
+        // Clear motion only: a held key, stick or touch button keeps driving the player.
+        if (e.state) { e.state.verticalVelocity = 0; e.state.grounded = false; e.state.jumpHeld = !!e.input?.isActionActive("jump"); e.jumpRequested = false; e.velocity.set(0, 0, 0); e.boost.set(0, 0, 0); e.inputVelocity.set(0, 0, 0); e.jumpPressed = false; }
         changedColliders.add(e.collider);
-        e.input?.reset(); e.vehicle?.resetMotion(); readPose(e, true); present(e, 1); e.fps?.update(); e.third?.updateCamera(); e.vehicle?.updateCamera();
+        e.vehicle?.resetMotion(); readPose(e, true); present(e, 1); e.fps?.update(); e.third?.updateCamera(); e.vehicle?.updateCamera();
       },
       bindObject(object) { return bind(requireEntry(handle), object); },
       remove: () => remove(handle),
