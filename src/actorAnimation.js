@@ -72,8 +72,9 @@ export function createLocomotion(root, clips, { speed = 5, runSpeed = 8 } = {}) 
         const next = airborne > AIR_DELAY && actions.air ? "air"
           : horizontalSpeed <= .2 ? "idle"
           : walk ? "walk" : "run";
-        fadeTo(actions[next] ?? actions.walk, next);
-        if (next === "walk" || next === "run") {
+        // An idle-only model keeps idling while it moves.
+        fadeTo(actions[next] ?? actions.walk ?? actions.idle, next);
+        if ((next === "walk" || next === "run") && actions.walk) {
           // Match stride to speed so feet do not slide.
           const base = next === "walk" ? speed : runSpeed;
           current.timeScale = THREE.MathUtils.clamp(horizontalSpeed / base, .6, 1.4);

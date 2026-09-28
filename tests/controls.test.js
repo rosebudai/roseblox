@@ -222,6 +222,10 @@ test("models without clips, first person and animate:false leave animation to th
   assert.equal(fps.player.mixer, null);
   const loose = await playing(t, { model: riggedHero().scene, animations: riggedHero(["Walk"]).animations });
   assert.equal(loose.player.animation, "idle", "a walk-only rig holds a still walk pose for idle");
+  const idleOnly = await playing(t, { model: riggedHero(["Idle"]) });
+  idleOnly.player.setAxis(1, 0); advance(idleOnly.world, .3);
+  assert.ok(Math.hypot(idleOnly.player.velocity.x, idleOnly.player.velocity.z) > 1, "an idle-only rig still moves");
+  assert.deepEqual(idleOnly.player.mixer._actions.filter(a => a.isRunning()).map(a => a.getClip().name), ["Idle"]);
 });
 
 test("an NPC with clips animates from the velocity the game gives it", async t => {
@@ -234,4 +238,5 @@ test("an NPC with clips animates from the velocity the game gives it", async t =
   npc.setVelocity([6, 0, 0]); advance(world, .3);
   assert.equal(npc.animation, "run");
   npc.remove();
+  advance(world, .1);
 });
