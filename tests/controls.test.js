@@ -254,3 +254,16 @@ test("an NPC with clips animates from the velocity the game gives it", async t =
   npc.remove();
   advance(world, .1);
 });
+
+test("an animated NPC removed through its body handle, such as a ray hit, stops animating", async t => {
+  const world = await fixture(t), scene = new THREE.Scene();
+  const npc = world.addNpc({ model: riggedHero(), feet: [3, 0, 0] });
+  scene.add(npc.root); advance(world, .2);
+  const hit = world.castRay([3, 5, 0], [0, -1, 0]);
+  assert.equal(hit.body, npc.body);
+  hit.body.remove();
+  advance(world, .1);
+  npc.remove();
+  assert.equal(npc.root.parent, null, "the handle's own remove still detaches the model");
+  advance(world, .1);
+});

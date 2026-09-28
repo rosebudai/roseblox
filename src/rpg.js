@@ -54,7 +54,7 @@ export async function createRpgWorld({ playerDefaults = {}, ...options } = {}) {
     });
     return Object.assign(actor, {
       playAnimation: (name, options) => locomotion?.play(name, options) ?? null,
-      remove: () => { if (locomotion) { animated.delete(actor); locomotion.dispose(); } remove(); },
+      remove: () => { if (animated.delete(actor)) locomotion.dispose(); remove(); },
     });
   }
   function attachActor(body, visual, height, forwardAxis = "+Z") {
@@ -158,7 +158,9 @@ export async function createRpgWorld({ playerDefaults = {}, ...options } = {}) {
     advance(dt, config) {
       const result = mechanics.advance(dt, config);
       for (const overlay of overlays) overlay.sync();
-      if (!config?.paused && dt > 0) for (const { locomotion, body } of animated.values()) {
+      if (!config?.paused && dt > 0) for (const [actor, { locomotion, body }] of animated) {
+        // A body removed through its own handle (a ray or collision hit) stops animating.
+        if (body.removed) { animated.delete(actor); locomotion.dispose(); continue; }
         const v = body.velocity;
         locomotion.update(Math.min(dt, .1), { horizontalSpeed: Math.hypot(v.x, v.z), grounded: body.grounded });
       }
