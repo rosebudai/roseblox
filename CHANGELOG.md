@@ -25,6 +25,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Breaking:** peer dependencies are narrowed from `*` to the tested versions: `three` 0.184.x or 0.185.x, `@dimforge/rapier3d-compat` 0.20.x, `camera-controls` 3.1.x and `miniplex` 2.0.x. The 0.0.x README pinned three 0.163.0, Rapier 0.17.3 and camera-controls 2.10.1; upgrade those imports together.
+- **Breaking:** transform sync now runs once per rendered frame, after every fixed-step system. A default (fixed-phase) system that wrote an entity root's `mesh.position`/`mesh.rotation` after transform sync (priority above 65) is now overwritten; register it with `phase: "frame"` and a priority above 65, or move the entity through `transform.position` and `transform.rotation`/`transform.quaternion`. Root-mesh edits made before transform sync were already overwritten in 0.0.x, which is why the getting-started example now rotates its cubes through `transform.rotation`.
+- The package now has an `exports` map. `package.json` and deep `roseblox-game-engine/src/*` imports remain available alongside the named entry points.
 - Preserve the type of Three.js materials supplied to shape helpers and give each shape independently disposable material/texture wrappers.
 - Pin tested dependencies and share Playground's Three.js 0.184.0 instance; load Rapier 0.20.0 as a separate pinned browser module.
 - Keep original singleton and ECS entry points; build the legacy filename for existing template symlinks.
@@ -40,6 +43,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Expose `transform.quaternion` as an alias of the existing owned rotation so direct aiming survives transform synchronization.
 - Bias decorative ground materials behind coplanar solid floors to prevent depth fighting while preserving geometry, scenery heights and physics.
 - Update examples to the supported browser dependencies and document instance lifecycle/input focus.
+
+### Fixed
+
+- Removing an animated entity no longer re-adds it to physics/render queries, which crashed the next step reading its freed rigid body.
+- Parented entities render at their parent's interpolated pose instead of trailing it at high refresh rates.
+- Voxel avatars measure gait per physics step, so limbs no longer flicker between walking and idle above 60 Hz.
+- `addPlayer` keeps a jump tap that is pressed and released between two frames.
+- `createGame` disposes its initialized engine when later setup fails.
+- A GLTF renderable whose asset was not preloaded shows a red wireframe placeholder with a console warning again, instead of stopping the game.
 
 These changes are under evaluation. Engine tests are not model-generation success measurements.
 

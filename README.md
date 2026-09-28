@@ -67,6 +67,12 @@ For a standalone page, use `build/roseblox.js` and an importmap:
 
 The browser build bundles the engine, Miniplex and camera-controls. It shares your Three.js instance and imports pinned Rapier 0.20.0 from HTTPS. The readable engine stays small enough for source inspection and Playground's validator; Rapier's inline WebAssembly is not copied into the model's project files. CDN access is required on first load.
 
+To import the source package instead (`roseblox-game-engine`, its subpaths, or deep `roseblox-game-engine/src/...` modules), install the tested peer dependencies. Three.js 0.185 is also accepted:
+
+```sh
+npm install three@0.184 @dimforge/rapier3d-compat@0.20 miniplex@2.0 camera-controls@3.1
+```
+
 ## Lifecycle and timing
 
 `createGame()` and `createEngine()` produce independent instances. `start()` is idempotent, `stop()` pauses without accumulating elapsed time, and `dispose()` releases listeners, graphics and physics resources permanently. Initialize with `autoStart:false` to drive `engine.update(seconds)` manually.
@@ -74,6 +80,8 @@ The browser build bundles the engine, Miniplex and camera-controls. It shares yo
 Simulation and gameplay run at 60 fixed steps per second by default. Frame callbacks handle presentation; `maxSubSteps` bounds catch-up after stalls. Core dependency failures fail initialization with an actionable error. Runtime errors stop the game and are recorded in `getDiagnostics()`; `errorMode:'continue'` explicitly disables a failing system and continues. Diagnostics help debugging but do not establish gameplay quality.
 
 Low-level systems accept `phase:'fixed'|'frame'` and priority. Existing callbacks default to fixed simulation. Use frame phase for presentation-only work. Resource factories may declare dependencies; setup callbacks wait for resources produced by other setups. See source for the full low-level API.
+
+Entity root poses come from `entity.transform`. Every rendered frame copies each entity's transform (interpolated for physics bodies) to its mesh, so move or turn an entity through `transform.position` and `transform.rotation`/`transform.quaternion`, not `mesh.position`/`mesh.rotation`. Child objects added beneath the mesh remain yours to animate.
 
 ## Development
 
@@ -88,11 +96,11 @@ python -m http.server 8893
 
 Open `/examples/modern/` for Meadow Run, a small playable demonstration of the compact API. `/examples/getting-started/` and `/examples/adventure/` retain the original ECS examples. The build writes `roseblox-game-engine.js` as a compatibility filename for existing template symlinks.
 
-Run browser checks in a Chromium-capable workstation:
+Run browser checks in a Chromium-capable workstation after `npm run build`. Set `CANARY_CHROMIUM_EXECUTABLE` to the Chromium binary (the default is `/usr/local/bin/chromium`). The npm scripts serve the repository themselves; the direct commands take the URL of an existing server:
 
 ```sh
-node tests/game-browser.mjs http://127.0.0.1:8893/examples/modern/ /tmp/roseblox-browser-evidence
-node tests/camera-browser.mjs http://127.0.0.1:8893 /tmp/roseblox-camera-evidence
+npm run test:browser-game
+npm run test:browser-camera
 node tests/hud-browser.mjs http://127.0.0.1:8893 /tmp/roseblox-hud-evidence
 node --test benchmarks/evaluate.test.mjs benchmarks/visible-text.test.mjs
 ```
