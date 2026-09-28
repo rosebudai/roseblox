@@ -50,7 +50,7 @@ export async function createMechanics(options = {}) {
   const entries = new Map(), colliders = new Map(), contacts = new Map(), listeners = new Set(), changedColliders = new Set();
   let nextId = 1, accumulator = 0, disposed = false, paused = false, advancing = false;
   const diagnostics = { frames: 0, fixedSteps: 0, simulatedSeconds: 0, droppedSeconds: 0, negativeDeltaFrames: 0 };
-  const forward = new THREE.Vector3(), right = new THREE.Vector3(), desired = new THREE.Vector3();
+  const forward = new THREE.Vector3(), right = new THREE.Vector3(), desired = new THREE.Vector3(), ride = new THREE.Vector3();
   const heading = new THREE.Quaternion(), parentRotation = new THREE.Quaternion();
   const live = () => { if (disposed) throw new Error("Mechanics is disposed."); };
   function requireEntry(handle) {
@@ -368,16 +368,23 @@ export async function createMechanics(options = {}) {
       }
       e.inputVelocity.set(desired.x, 0, desired.z);
       desired.add(e.boost);
+      ride.set(0, 0, 0);
       if (e.state.grounded) {
         // A platform teleported this step carries its rider the same distance.
-        const support = supportUnder(e)?.body, carry = support && entries.get(support)?.carry;
+        const support = supportUnder(e)?.body, prop = support && entries.get(support), carry = prop?.carry;
         if (carry && carry.lengthSq() > 0 && carry.lengthSq() < 1) {
           e.body.setTranslation(vector(e.body.translation()).add(carry), true);
           world.propagateModifiedBodyPositionsToColliders();
         }
+        // Rapier carries a rider along a moveTo platform and up with it, but not down:
+        // follow a descent this step so the rider stays grounded and can jump.
+        if (prop && !prop.state && prop.body.isKinematic()) {
+          const drop = prop.body.nextTranslation().y - prop.body.translation().y;
+          if (drop < 0 && drop > -1) ride.y = drop;
+        }
       }
       const wasHeld = e.state.jumpHeld, wasGrounded = e.state.grounded;
-      moveCharacter({ physics, body: e.body, collider: e.collider, controller: e.controller, state: e.state, velocity: desired, jumpDown, jumpSpeed: e.jumpSpeed ?? 0 }, dt);
+      moveCharacter({ physics, body: e.body, collider: e.collider, controller: e.controller, state: e.state, velocity: desired, jumpDown, jumpSpeed: e.jumpSpeed ?? 0, carry: ride }, dt);
       e.jumpPressed = jumpDown && !wasHeld && !(wasGrounded && (e.jumpSpeed ?? 0) > 0);
       e.boost.multiplyScalar(Math.exp(-(e.state.grounded ? 10 : 1.5) * dt));
       if (e.boost.lengthSq() < 1e-6) e.boost.set(0, 0, 0);
