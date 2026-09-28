@@ -10,7 +10,7 @@ function trackMesh(state, entity) {
     // removed or replaced with a different renderable type.
     state.meshes.set(mesh, {
       entity,
-      ownsResources: entity.renderable.type !== "gltf",
+      ownsResources: entity.renderable.type !== "gltf" || mesh.userData.ownsResources === true,
       // New factory data takes precedence over a previous mesh's component.
       mixer: entity.animationData?.mixer ?? entity.animationMixer?.mixer,
     });

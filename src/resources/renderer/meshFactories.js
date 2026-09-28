@@ -84,7 +84,15 @@ export function gltfMeshFactory(entity, { assets }) {
 
   const cached = assets.cache.get(assetKey);
   if (!cached) {
-    throw new Error(`GLTF asset '${assetKey}' is not preloaded. Add it to config.assets before init().`);
+    // Keep the game running with a visible marker, as before.
+    console.warn(`GLTF asset '${assetKey}' is not preloaded; showing a placeholder box. Add it to config.assets before init().`);
+    const placeholder = new THREE.Mesh(
+      new THREE.BoxGeometry(1, 1, 1),
+      new THREE.MeshBasicMaterial({ color: 0xff0000, wireframe: true }),
+    );
+    // Unlike GLTF clones, the placeholder owns its geometry and material.
+    placeholder.userData.ownsResources = true;
+    return placeholder;
   }
 
   const gltfClone = assets.cloneGLTF(cached);
