@@ -22,6 +22,23 @@ function standIn() {
   return new THREE.Mesh(standInGeometry, standInMaterial);
 }
 
+/** Clone a model with its skeletons rebound to the cloned bones, like three's SkeletonUtils.clone. */
+function cloneModel(source) {
+  const clone = source.clone(), copies = new Map();
+  const pair = (a, b) => { copies.set(a, b); a.children.forEach((child, i) => pair(child, b.children[i])); };
+  pair(source, clone);
+  for (const [original, copy] of copies) {
+    if (!original.isSkinnedMesh) continue;
+    copy.bind(new THREE.Skeleton(original.skeleton.bones.map(bone => copies.get(bone) ?? bone), original.skeleton.boneInverses), original.bindMatrix);
+  }
+  return clone;
+}
+/** The actor's own model: a capsule without one, and a clone of one another actor or the scene already holds. */
+function actorModel(source, root) {
+  if (source == null) return standIn();
+  return root?.isObject3D && root.parent ? cloneModel(root) : root;
+}
+
 /** Normalize a detached model into a unit-scale, feet-origin attachment frame. */
 export function fitRpgModel(model, { height = 1.8, yaw = 0 } = {}) {
   positive(height, "height");
@@ -83,7 +100,7 @@ export async function createRpgWorld({ playerDefaults = {}, ...options } = {}) {
   }
   async function addPlayer(config) {
     const { model: source, animations, animate = true, feet = [0, 0, 0], height = 1.8, radius = .35, modelYaw = 0, view = "third", touch = "auto", touchButtons = [], ...controls } = { ...playerDefaults, ...config };
-    const parts = modelParts(source, animations), model = source == null ? standIn() : parts.root;
+    const parts = modelParts(source, animations), model = parts.root = actorModel(source, parts.root);
     if (!["third", "first"].includes(view)) throw new Error("view must be third or first.");
     if (!["auto", true, false].includes(touch)) throw new Error("touch must be auto, true or false.");
     if (!Array.isArray(touchButtons)) throw new Error("touchButtons must be an array.");
@@ -144,7 +161,7 @@ export async function createRpgWorld({ playerDefaults = {}, ...options } = {}) {
     });
   }
   function addNpc({ model: source, animations, animate = true, speed = 2.5, runSpeed = 5, feet = [0, 0, 0], height = 1.8, radius = .35, modelYaw = 0, autoFaceMovement = true, ...config }) {
-    const parts = modelParts(source, animations), model = source == null ? standIn() : parts.root;
+    const parts = modelParts(source, animations), model = parts.root = actorModel(source, parts.root);
     const { spawn, visual } = prepareActor(model, feet, height, radius, modelYaw);
     let body;
     try {
