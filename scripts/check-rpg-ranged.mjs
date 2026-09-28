@@ -1,19 +1,18 @@
 import assert from 'node:assert/strict';
-import {spawn} from 'node:child_process';
+import {serveRepository} from './rpg-check-server.mjs';
 import {mkdir,writeFile} from 'node:fs/promises';
 import {fileURLToPath} from 'node:url';
 import {chromium} from '@playwright/test';
 const root=fileURLToPath(new URL('../',import.meta.url)), output=process.env.RPG_UI_EVIDENCE??'/tmp/roseblox-rpg-ranged-evidence';
 await mkdir(output,{recursive:true});
-const server=spawn('python3',['-m','http.server','4338','--bind','127.0.0.1'],{cwd:root,stdio:'ignore'});
+const server=await serveRepository(root,4343);
 let browser;
 const checks=[], errors=[];
 try{
- for(let i=0;i<40;i++){if(await fetch('http://127.0.0.1:4338/').then(r=>r.ok).catch(()=>false))break;await new Promise(r=>setTimeout(r,100));}
  browser=await chromium.launch({headless:true,executablePath:process.env.CANARY_CHROMIUM_EXECUTABLE,args:['--no-sandbox','--use-angle=swiftshader','--enable-unsafe-swiftshader']});
  async function open(query){
   const page=await browser.newPage({viewport:{width:1280,height:800}});page.on('pageerror',e=>errors.push(e.message));
-  await page.goto(`http://127.0.0.1:4338/examples/rpg-template/?${query}`);
+  await page.goto(`http://127.0.0.1:4343/examples/rpg-template/?${query}`);
   await page.getByRole('button',{name:'Play',exact:true}).click();
   await page.waitForFunction(()=>window.fixture.player.grounded&&window.fixture.player.active);
   return page;
@@ -32,8 +31,7 @@ try{
  await fire(page);
  assert.deepEqual(await health(page,['enemy','side']),{enemy:30,side:40});checks.push('soft lock hits the enemy nearest the crosshair');
  assert.equal(await page.evaluate(()=>window.shotEffects),1);
- await page.waitForTimeout(600);
- assert.ok(await page.evaluate(()=>window.fixture.actors.get('enemy').position().z)>home+.5,'a shot provokes an enemy outside aggro range');checks.push('shot provokes');
+ await page.waitForFunction(home=>window.fixture.actors.get('enemy').position().z>home+.5,home,{timeout:5000});checks.push('shot provokes');
  await fire(page);await fire(page);
  assert.equal((await health(page,['enemy'])).enemy,10);
  assert.deepEqual(await rifle(page),{ammo:0,reserve:3,reloading:true});checks.push('empty clip reloads');

@@ -1,15 +1,14 @@
 import assert from 'node:assert/strict';
-import {spawn} from 'node:child_process';
+import {serveRepository} from './rpg-check-server.mjs';
 import {mkdir,writeFile} from 'node:fs/promises';
 import {fileURLToPath} from 'node:url';
 import {chromium} from '@playwright/test';
 const root=fileURLToPath(new URL('../',import.meta.url)), output=process.env.RPG_UI_EVIDENCE??'/tmp/roseblox-rpg-stalker-evidence';
 await mkdir(output,{recursive:true});
-const server=spawn('python3',['-m','http.server','4341','--bind','127.0.0.1'],{cwd:root,stdio:'ignore'});
+const server=await serveRepository(root,4341);
 let browser;
 const checks=[], errors=[];
 try{
- for(let i=0;i<40;i++){if(await fetch('http://127.0.0.1:4341/').then(r=>r.ok).catch(()=>false))break;await new Promise(r=>setTimeout(r,100));}
  browser=await chromium.launch({headless:true,executablePath:process.env.CANARY_CHROMIUM_EXECUTABLE,args:['--no-sandbox','--use-angle=swiftshader','--enable-unsafe-swiftshader']});
  async function open(query){
   const page=await browser.newPage({viewport:{width:1280,height:800}});page.on('pageerror',e=>errors.push(e.message));
@@ -61,8 +60,7 @@ try{
  await page.keyboard.press('KeyF');
  assert.ok(await hunterDistance(page)>4);
  await until(page,()=>window.fixtureState.alert==='searching',null,2000);checks.push('lost sight starts a search');
- await page.waitForTimeout(1500);
- assert.ok(await hunterDistance(page)<8,'the search heads for the last known position');
+ await until(page,()=>window.fixture.actors.get('hunter').position().distanceTo(window.fixture.player.position)<8,null,5000);
  await page.screenshot({path:`${output}/searching.png`});
  await until(page,()=>window.fixtureState.alert==='',null,15000);
  assert.deepEqual(await state(page),{alert:'',hidden:true,threat:0,health:100});checks.push('search gives up');

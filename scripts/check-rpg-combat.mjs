@@ -1,14 +1,13 @@
 import assert from 'node:assert/strict';
-import {spawn} from 'node:child_process';
+import {serveRepository} from './rpg-check-server.mjs';
 import {mkdir,writeFile} from 'node:fs/promises';
 import {fileURLToPath} from 'node:url';
 import {chromium} from '@playwright/test';
 const root=fileURLToPath(new URL('../',import.meta.url)), output=process.env.RPG_UI_EVIDENCE??'/tmp/roseblox-rpg-combat-evidence';
 await mkdir(output,{recursive:true});
-const server=spawn('python3',['-m','http.server','4336','--bind','127.0.0.1'],{cwd:root,stdio:'ignore'});
+const server=await serveRepository(root,4336);
 let browser;
 try{
- for(let i=0;i<40;i++){if(await fetch('http://127.0.0.1:4336/').then(r=>r.ok).catch(()=>false))break;await new Promise(r=>setTimeout(r,100));}
  browser=await chromium.launch({headless:true,executablePath:process.env.CANARY_CHROMIUM_EXECUTABLE,args:['--no-sandbox','--use-angle=swiftshader','--enable-unsafe-swiftshader']});
  const page=await browser.newPage({viewport:{width:1280,height:800}}), errors=[];page.on('pageerror',e=>errors.push(e.message));
  await page.goto('http://127.0.0.1:4336/examples/rpg-template/?melee=1');
