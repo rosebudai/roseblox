@@ -8,7 +8,7 @@ import { bindRpgUI } from "./rpgUI.js";
 import { resolveRpgLighting } from "./rpgLighting.js";
 import { createRpgScenery } from "./rpgScenery.js";
 
-export const RPG_TEMPLATE_VERSION = "0.3.3-experiment";
+export const RPG_TEMPLATE_VERSION = "0.3.4-experiment";
 export { RPG_BINDINGS, createRpgSession, createRpgProgress };
 
 const css = `
