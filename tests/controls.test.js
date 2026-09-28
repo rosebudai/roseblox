@@ -85,3 +85,76 @@ test("a player created for touch play enters without pointer lock", async t => {
   advance(world, .1);
   player.remove();
 });
+
+async function playing(t, config = {}) {
+  const world = await fixture(t), browser = surface(true);
+  const player = await world.addPlayer({ ...browser, model: hero(), feet: [0, 0, 0], ...config });
+  player.start(); advance(world, .5);
+  return { world, player };
+}
+function peak(world, player, seconds, afterStep) {
+  let top = -Infinity;
+  for (let i = 0; i < Math.round(seconds * 60); i++) world.advance(1 / 60, { afterStep: dt => { afterStep?.(dt); top = Math.max(top, player.position.y); } });
+  return top;
+}
+
+test("the default jump peaks near jumpSpeed squared over 40, about one metre", async t => {
+  const { world, player } = await playing(t);
+  player.setAction("jump", true);
+  const top = peak(world, player, 1.2);
+  assert.ok(top > .85 && top < 1.1, `default apex ${top}`);
+});
+
+test("setVelocity launches the player and hands horizontal control back to input", async t => {
+  const { world, player } = await playing(t);
+  player.setVelocity([12, 9, 0]);
+  const top = peak(world, player, .5);
+  assert.ok(top > 1.6, `vertical launch reaches jumpSpeed-style height (${top})`);
+  assert.ok(player.velocity.x > 0 && player.velocity.x < 12, `the horizontal push is fading (${player.velocity.x})`);
+  advance(world, 1.5);
+  assert.equal(player.grounded, true);
+  assert.ok(Math.abs(player.velocity.x) < .05, `input takes back over (${player.velocity.x})`);
+  assert.ok(player.position.x > 2, `the push moved the player (${player.position.x})`);
+  const before = player.position.clone();
+  player.setAxis(1, 0); advance(world, .3);
+  const walking = player.velocity;
+  player.setVelocity([walking.x, 0, walking.z]);
+  advance(world, .05);
+  assert.ok(Math.abs(player.velocity.x - walking.x) < .3, "passing the current velocity back changes nothing");
+  assert.ok(player.position.x > before.x);
+});
+
+test("jumpPressed reports only presses the engine did not use, so games can add air jumps", async t => {
+  const { world, player } = await playing(t);
+  const presses = [];
+  const track = () => { if (player.jumpPressed) presses.push(player.grounded); };
+  player.setAction("jump", true);
+  world.advance(1 / 60, { afterStep: track }); world.advance(1 / 60, { afterStep: track });
+  assert.deepEqual(presses, [], "a ground jump is not reported");
+  assert.equal(player.jumpHeld, true);
+  player.setAction("jump", false); advance(world, .1);
+  assert.equal(player.jumpHeld, false);
+  const single = player.position.y;
+  let airJumps = 1;
+  player.setAction("jump", true);
+  const top = peak(world, player, 1.2, () => {
+    track();
+    if (player.jumpPressed && !player.grounded && airJumps > 0) { airJumps--; const v = player.velocity; player.setVelocity([v.x, 6.25, v.z]); }
+  });
+  assert.deepEqual(presses, [false], "one mid-air press, reported once");
+  assert.ok(top > 1.4, `the game's double jump climbs above the one-metre single jump (from ${single} to ${top})`);
+});
+
+for (const mover of ["teleport", "moveTo"]) test(`a kinematic platform moved with ${mover} carries a player standing on it`, async t => {
+  const world = await fixture(t), browser = surface(true);
+  const platform = world.addBody({ type: "kinematic", shape: { type: "box", size: [4, .5, 4] }, position: [0, 2, 0] });
+  const player = await world.addPlayer({ ...browser, model: hero(), feet: [0, 2.3, 0] });
+  player.start(); advance(world, .5);
+  assert.equal(player.grounded, true);
+  const start = player.position.clone();
+  for (let i = 1; i <= 60; i++) world.advance(1 / 60, { beforeStep: () => platform[mover]([i * 2 / 60, 2 + i * .5 / 60, 0]) });
+  const moved = player.position.clone().sub(start);
+  assert.ok(Math.abs(moved.x - 2) < .25, `rides sideways with the platform (${moved.x})`);
+  assert.ok(Math.abs(moved.y - .5) < .15, `rides up with the platform (${moved.y})`);
+  assert.equal(player.grounded, true);
+});

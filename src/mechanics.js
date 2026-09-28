@@ -154,10 +154,11 @@ export async function createMechanics(options = {}) {
       teleport(value) {
         const e = requireEntry(handle), p = vector(value);
         p.y += e.spawnClearance ?? 0;
+        if (e.body.isKinematic() && !e.state) (e.carry ??= new THREE.Vector3()).add(vector(e.body.translation()).negate().add(p));
         e.body.setTranslation(p, true);
         if (e.body.isKinematic()) e.body.setNextKinematicTranslation(p);
         e.body.setLinvel({ x: 0, y: 0, z: 0 }, true); e.body.setAngvel({ x: 0, y: 0, z: 0 }, true);
-        if (e.state) { e.state.verticalVelocity = 0; e.state.grounded = false; e.state.jumpHeld = false; e.jumpRequested = false; e.velocity.set(0, 0, 0); }
+        if (e.state) { e.state.verticalVelocity = 0; e.state.grounded = false; e.state.jumpHeld = false; e.jumpRequested = false; e.velocity.set(0, 0, 0); e.boost.set(0, 0, 0); e.inputVelocity.set(0, 0, 0); e.jumpPressed = false; }
         changedColliders.add(e.collider);
         e.input?.reset(); e.vehicle?.resetMotion(); readPose(e, true); present(e, 1); e.fps?.update(); e.third?.updateCamera(); e.vehicle?.updateCamera();
       },
@@ -181,7 +182,21 @@ export async function createMechanics(options = {}) {
       entry.state = { enabled: true, grounded: false, verticalVelocity: 0, jumpHeld: false };
       entry.velocity = vector(config.velocity); entry.spawnClearance = spawnClearance;
       entry.forwardAxis = forwardAxis; entry.autoFaceMovement = config.autoFaceMovement === true;
-      entry.jumpSpeed = jumpSpeed; entry.jumpRequested = false;
+      entry.jumpSpeed = jumpSpeed; entry.jumpRequested = false; entry.jumpPressed = false;
+      entry.boost = new THREE.Vector3(); entry.inputVelocity = new THREE.Vector3();
+      Object.defineProperties(handle, {
+        /** World velocity from walking, pushes and the vertical speed (0 while standing). */
+        velocity: { get: () => { const e = requireEntry(handle); return e.inputVelocity.clone().add(e.boost).setY(e.state.grounded && e.state.verticalVelocity <= 0 ? 0 : e.state.verticalVelocity); } },
+        /** A new jump press this fixed step that the engine did not use for a ground jump. */
+        jumpPressed: { get: () => requireEntry(handle).jumpPressed },
+        jumpHeld: { get: () => requireEntry(handle).state.jumpHeld },
+      });
+      /** Set the velocity now; gravity keeps acting and walking input takes the horizontal part back as the push fades. */
+      handle.setMotion = value => {
+        const e = requireEntry(handle), v = vector(value);
+        e.state.verticalVelocity = v.y;
+        e.boost.set(v.x - e.inputVelocity.x, 0, v.z - e.inputVelocity.z);
+      };
       handle.faceDirection = value => {
         const e = requireEntry(handle), direction = vector(value);
         if (direction.x * direction.x + direction.z * direction.z < 1e-12) return;
@@ -343,12 +358,31 @@ export async function createMechanics(options = {}) {
         const sign = e.forwardAxis === "+Z" ? 1 : -1;
         e.body.setNextKinematicRotation(heading.setFromAxisAngle(up, Math.atan2(sign * desired.x, sign * desired.z)));
       }
+      e.inputVelocity.set(desired.x, 0, desired.z);
+      desired.add(e.boost);
+      if (e.state.grounded) {
+        // A platform teleported this step carries its rider the same distance.
+        const support = supportUnder(e)?.body, carry = support && entries.get(support)?.carry;
+        if (carry && carry.lengthSq() > 0 && carry.lengthSq() < 1) {
+          e.body.setTranslation(vector(e.body.translation()).add(carry), true);
+          world.propagateModifiedBodyPositionsToColliders();
+        }
+      }
+      const wasHeld = e.state.jumpHeld, wasGrounded = e.state.grounded;
       moveCharacter({ physics, body: e.body, collider: e.collider, controller: e.controller, state: e.state, velocity: desired, jumpDown, jumpSpeed: e.jumpSpeed ?? 0 }, dt);
+      e.jumpPressed = jumpDown && !wasHeld && !(wasGrounded && (e.jumpSpeed ?? 0) > 0);
+      e.boost.multiplyScalar(Math.exp(-(e.state.grounded ? 10 : 1.5) * dt));
+      if (e.boost.lengthSq() < 1e-6) e.boost.set(0, 0, 0);
     }
+    for (const e of entries.values()) e.carry?.set(0, 0, 0);
     world.timestep = dt; world.step(eventQueue);
     changedColliders.clear();
     for (const e of entries.values()) readPose(e);
     processContacts();
+  }
+  function supportUnder(e) {
+    const t = e.body.translation(), feet = e.collider.halfHeight() + e.collider.radius();
+    return castRay([t.x, t.y - feet + .05, t.z], [0, -1, 0], { maxDistance: .25, exclude: e.handle });
   }
   function castRay(origin, direction, config = {}) {
     live();

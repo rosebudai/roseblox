@@ -97,6 +97,9 @@ export async function createRpgWorld({ playerDefaults = {}, ...options } = {}) {
     if (overlay) overlays.add(overlay);
     const remove = actor.remove;
     Object.defineProperties(actor, {
+      velocity: { get: () => body.velocity },
+      jumpPressed: { get: () => body.jumpPressed },
+      jumpHeld: { get: () => body.jumpHeld },
       active: { get: () => body.active },
       locked: { get: () => body.locked },
       touch: { value: !!overlay },
@@ -109,6 +112,7 @@ export async function createRpgWorld({ playerDefaults = {}, ...options } = {}) {
       pause: () => body.pause(), resume: () => body.resume(),
       setAction: (name, down) => body.setAction(name, down),
       setMoveSpeed: (walk, run = walk) => body.setMoveSpeed(walk, run),
+      setVelocity: value => body.setMotion(value),
     });
   }
   function addNpc({ model, feet = [0, 0, 0], height = 1.8, radius = .35, modelYaw = 0, autoFaceMovement = true, ...config }) {
