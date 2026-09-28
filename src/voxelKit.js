@@ -114,19 +114,29 @@ export function createVoxelKit(game, { theme = "woodland", seed = 1, lighting = 
     grounds.delete(entity);
     ownedEntities.delete(entity);
   });
-  const unsubscribeFrame = game.onFrame(dt => {
-    elapsed += dt;
+  // Measure gait per physics step; high-refresh frames often fall between steps.
+  const unsubscribeUpdate = game.onUpdate(dt => {
     for (const [entity, avatar] of avatars) {
       const dx = entity.transform.position.x - avatar.previous.x;
       const dz = entity.transform.position.z - avatar.previous.z;
-      const distance = Math.hypot(dx, dz);
-      const moving = distance > 0.001 && distance < 2;
+      // A long jump is a teleport, not a stride.
+      if (Math.hypot(dx, dz) < 2) avatar.velocity.set(dx / dt, dz / dt);
+      else avatar.velocity.set(0, 0);
+      avatar.previous.copy(entity.transform.position);
+    }
+  });
+  const unsubscribeFrame = game.onFrame(dt => {
+    elapsed += dt;
+    for (const [entity, avatar] of avatars) {
+      const { x: vx, y: vz } = avatar.velocity;
+      const speed = avatar.velocity.length();
+      const moving = speed > 0.06;
       const playerOwnsFacing = entity.player?.facing !== undefined;
       if (playerOwnsFacing) avatar.root.rotation.y = 0;
       if (moving) {
-        avatar.stride += distance * 9;
+        avatar.stride += speed * dt * 9;
         if (!playerOwnsFacing) {
-          const angle = Math.atan2(-dx, -dz) - avatar.root.rotation.y;
+          const angle = Math.atan2(-vx, -vz) - avatar.root.rotation.y;
           avatar.root.rotation.y += Math.atan2(Math.sin(angle), Math.cos(angle)) * Math.min(1, dt * 14);
         }
       }
@@ -136,7 +146,6 @@ export function createVoxelKit(game, { theme = "woodland", seed = 1, lighting = 
         arm.rotation.x += (-swing * 0.8 - arm.rotation.x) * Math.min(1, dt * 16);
       }
       avatar.root.position.y = avatar.baseY + (moving ? Math.abs(Math.sin(avatar.stride)) * 0.025 : Math.sin(elapsed * 2) * 0.006);
-      avatar.previous.copy(entity.transform.position);
     }
     for (const entry of pickups.values()) {
       entry.visual.rotation.y = elapsed * 1.6 + entry.phase;
@@ -280,7 +289,7 @@ export function createVoxelKit(game, { theme = "woodland", seed = 1, lighting = 
       entity.mesh.castShadow = false;
       entity.mesh.add(model);
       const unregisterCameraVisual = game.registerCameraVisual(entity);
-      avatars.set(entity, { root: model, limbs, material: originalMaterial, materialOwner, hiddenMaterial, castShadow, baseY, previous: entity.transform.position.clone(), stride: 0, unregisterCameraVisual });
+      avatars.set(entity, { root: model, limbs, material: originalMaterial, materialOwner, hiddenMaterial, castShadow, baseY, previous: entity.transform.position.clone(), velocity: new THREE.Vector2(), stride: 0, unregisterCameraVisual });
       return entity;
     },
     /** Animated visual only; use your distance/raycast rules and game.remove. */
@@ -315,6 +324,7 @@ export function createVoxelKit(game, { theme = "woodland", seed = 1, lighting = 
     dispose(released = new Set()) {
       if (disposed) return;
       disposed = true;
+      unsubscribeUpdate();
       unsubscribeFrame();
       unsubscribeRemoval();
       hud?.dispose();

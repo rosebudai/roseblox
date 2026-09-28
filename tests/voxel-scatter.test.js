@@ -11,7 +11,7 @@ function fixture(t) {
   const warnings=[];
   t.mock.method(console,"warn",message=>warnings.push(message));
   const game={world,scene,renderer:{},engine:{initialized:true,disposed:false,addResource(){}},
-    onFrame:()=>()=>{},addCameraObstacle:()=>()=>{},
+    onUpdate:()=>()=>{},onFrame:()=>()=>{},addCameraObstacle:()=>()=>{},
     addBox({size,position,color,body="fixed"}) {
       const mesh=new THREE.Mesh(new THREE.BoxGeometry(...size),new THREE.MeshStandardMaterial({color}));
       mesh.position.set(...position);

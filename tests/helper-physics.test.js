@@ -531,6 +531,23 @@ test("voxel avatars inherit player heading once without cancelling limb animatio
     "voxel presentation also respects custom player rotation");
 });
 
+test("voxel avatar gait stays smooth when frames outnumber physics steps", async t => {
+  const game = await headlessGame(t);
+  const kit = createVoxelKit(game, { lighting: false });
+  kit.ground({ size: [40, 2, 40], position: [0, -1, 0] });
+  const npc = game.addCharacter({ position: [0, 1.1, 0] });
+  kit.avatar(npc);
+  advance(game, 1);
+  npc.character.velocity.set(0, 0, -3);
+  const leg = npc.mesh.children.at(-1).children.find(child => child.isGroup);
+  const angles = [];
+  for (let i = 0; i < 144; i++) { game.engine.update(1 / 144); angles.push(leg.rotation.x); }
+  let reversals = 0;
+  for (let i = 2; i < angles.length; i++) if ((angles[i] - angles[i - 1]) * (angles[i - 1] - angles[i - 2]) < 0) reversals++;
+  assert.ok(reversals < 16, `leg swing reversed ${reversals} times in one second`);
+  assert.ok(Math.max(...angles.map(Math.abs)) > .25, "the leg still reaches a full swing");
+});
+
 test("player clearance adapts to fixed step and gravity; exact opt-out and other teleports remain exact", async t => {
   const game=await headlessGame(t,{fixedTimeStep:1/30,gravity:{x:0,y:-30,z:0}});
   const {player}=floorAndPlayer(game);
