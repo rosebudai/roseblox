@@ -10,6 +10,8 @@ import { resolveRpgLighting } from "./rpgLighting.js";
 import { createRpgScenery } from "./rpgScenery.js";
 
 export const RPG_TEMPLATE_VERSION = "0.4.0-experiment";
+/** Packaged with the template; the scheme actually used still follows view and abilities (rpgControlScheme). */
+export const RPG_TEMPLATE_CONTROL_PROFILE = "wow_classic_desktop";
 export { RPG_BINDINGS, rpgBindings, rpgControlScheme, createRpgSession, createRpgProgress };
 
 const css = `
