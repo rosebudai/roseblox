@@ -1,6 +1,7 @@
 import * as THREE from "three";
 import { createMechanics, readable } from "./mechanics.js";
 import { RPG_MOVEMENT_DEFAULTS } from "./rpgProfile.js";
+import { createLocomotion, modelParts } from "./actorAnimation.js";
 import { createTouchControls, finePointer, touchAvailable } from "./touchControls.js";
 export { queryMeleeTargets, queryRangedTarget } from "./rpgCombat.js";
 
@@ -33,7 +34,7 @@ export function fitRpgModel(model, { height = 1.8, yaw = 0 } = {}) {
 /** RPG-specific surface over the shared physics motor; no rendering or game rules. */
 export async function createRpgWorld({ playerDefaults = {}, ...options } = {}) {
   const mechanics = await createMechanics({ ...options, gravity: options.gravity ?? [0, RPG_MOVEMENT_DEFAULTS.gravity, 0] });
-  const overlays = new Set();
+  const overlays = new Set(), animated = new Map();
   function prepareActor(model, feet, height, radius, modelYaw) {
     positive(height, "height"); positive(radius, "radius");
     if (height < 2 * radius) throw new Error("Actor height must be at least twice its radius.");
@@ -41,6 +42,20 @@ export async function createRpgWorld({ playerDefaults = {}, ...options } = {}) {
     // Validate/fit before creating a physics or input owner.
     const visual = fitRpgModel(model, { height, yaw: modelYaw });
     return { spawn, visual };
+  }
+  /** Adds automatic movement animation, `mixer`, `animation` and `playAnimation` to an actor. */
+  function animateActor(actor, body, parts, enabled, speeds) {
+    const locomotion = enabled ? createLocomotion(parts.root, parts.clips, speeds) : null;
+    if (locomotion) animated.set(actor, { locomotion, body });
+    const remove = actor.remove;
+    Object.defineProperties(actor, {
+      mixer: { get: () => locomotion?.mixer ?? null },
+      animation: { get: () => locomotion?.state ?? null },
+    });
+    return Object.assign(actor, {
+      playAnimation: (name, options) => locomotion?.play(name, options) ?? null,
+      remove: () => { if (locomotion) { animated.delete(actor); locomotion.dispose(); } remove(); },
+    });
   }
   function attachActor(body, visual, height, forwardAxis = "+Z") {
     const root = new THREE.Group(), axis = new THREE.Vector3(0, 0, forwardAxis === "+Z" ? 1 : -1);
@@ -58,7 +73,8 @@ export async function createRpgWorld({ playerDefaults = {}, ...options } = {}) {
     };
   }
   async function addPlayer(config) {
-    const { model, feet = [0, 0, 0], height = 1.8, radius = .35, modelYaw = 0, view = "third", touch = "auto", touchButtons = [], ...controls } = { ...playerDefaults, ...config };
+    const { model: source, animations, animate = true, feet = [0, 0, 0], height = 1.8, radius = .35, modelYaw = 0, view = "third", touch = "auto", touchButtons = [], ...controls } = { ...playerDefaults, ...config };
+    const parts = modelParts(source, animations), model = parts.root;
     if (!["third", "first"].includes(view)) throw new Error("view must be third or first.");
     if (!["auto", true, false].includes(touch)) throw new Error("touch must be auto, true or false.");
     if (!Array.isArray(touchButtons)) throw new Error("touchButtons must be an array.");
@@ -104,27 +120,32 @@ export async function createRpgWorld({ playerDefaults = {}, ...options } = {}) {
       locked: { get: () => body.locked },
       touch: { value: !!overlay },
     });
+    const speeds = { speed: controls.speed ?? 5, runSpeed: controls.runSpeed ?? 8 };
+    animateActor(actor, body, parts, animate && view !== "first", speeds);
+    const removeAnimated = actor.remove;
     return Object.assign(actor, {
-      remove: () => { if (overlay) { overlays.delete(overlay); overlay.dispose(); overlay = null; } remove(); },
+      remove: () => { if (overlay) { overlays.delete(overlay); overlay.dispose(); overlay = null; } removeAnimated(); },
       look: (dx, dy) => body.look(dx, dy),
       setAxis: (x, z) => body.setAxis(x, z),
       start: () => body.start(), stop: () => body.stop(),
       pause: () => body.pause(), resume: () => body.resume(),
       setAction: (name, down) => body.setAction(name, down),
-      setMoveSpeed: (walk, run = walk) => body.setMoveSpeed(walk, run),
+      setMoveSpeed: (walk, run = walk) => { body.setMoveSpeed(walk, run); animated.get(actor)?.locomotion.setSpeeds(walk, run); },
       setVelocity: value => body.setMotion(value),
     });
   }
-  function addNpc({ model, feet = [0, 0, 0], height = 1.8, radius = .35, modelYaw = 0, autoFaceMovement = true, ...config }) {
+  function addNpc({ model: source, animations, animate = true, speed = 2.5, runSpeed = 5, feet = [0, 0, 0], height = 1.8, radius = .35, modelYaw = 0, autoFaceMovement = true, ...config }) {
+    const parts = modelParts(source, animations), model = parts.root;
     const { spawn, visual } = prepareActor(model, feet, height, radius, modelYaw);
     let body;
     try {
       body = mechanics.addCharacter({ ...config, position: spawn.toArray(), radius, height: height - 2 * radius, forwardAxis: "+Z", autoFaceMovement });
     } catch (error) { model.removeFromParent(); throw error; }
-    return Object.assign(attachActor(body, visual, height), {
+    const npc = Object.assign(attachActor(body, visual, height), {
       setVelocity: value => body.setVelocity(value),
       faceDirection: value => body.faceDirection(value),
     });
+    return animateActor(npc, body, parts, animate, { speed, runSpeed });
   }
   return {
     addPlayer, addNpc,
@@ -137,12 +158,18 @@ export async function createRpgWorld({ playerDefaults = {}, ...options } = {}) {
     advance(dt, config) {
       const result = mechanics.advance(dt, config);
       for (const overlay of overlays) overlay.sync();
+      if (!config?.paused && dt > 0) for (const { locomotion, body } of animated.values()) {
+        const v = body.velocity;
+        locomotion.update(Math.min(dt, .1), { horizontalSpeed: Math.hypot(v.x, v.z), grounded: body.grounded });
+      }
       return result;
     },
     getDiagnostics: mechanics.getDiagnostics,
     dispose() {
       for (const overlay of overlays) overlay.dispose();
       overlays.clear();
+      for (const { locomotion } of animated.values()) locomotion.dispose();
+      animated.clear();
       mechanics.dispose();
     },
   };

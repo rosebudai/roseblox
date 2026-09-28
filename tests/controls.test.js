@@ -179,3 +179,59 @@ test("pushing the analog stick to its edge runs, so touch play can reach run spe
   assert.ok(Math.abs(walk - 3) < .1, `a partial push walks proportionally (${walk})`);
   assert.ok(Math.abs(run - 8) < .1, `a full push runs (${run})`);
 });
+
+function riggedHero(names = ["Idle", "Walk", "Run", "Jump_Loop", "Wave"]) {
+  const scene = new THREE.Group(), body = new THREE.Mesh(new THREE.BoxGeometry(.6, 1.8, .4));
+  body.name = "Body"; scene.add(body);
+  const clip = (name, duration = 1) => new THREE.AnimationClip(name, duration, [new THREE.VectorKeyframeTrack("Body.scale", [0, duration], [1, 1, 1, 1, 1, 1])]);
+  return { scene, animations: names.map(name => clip(name, name === "Wave" ? .5 : 1)) };
+}
+
+test("a player given a glTF with movement clips plays idle, walk, run and in-air automatically", async t => {
+  const { world, player } = await playing(t, { model: riggedHero() });
+  assert.ok(player.mixer instanceof THREE.AnimationMixer);
+  assert.equal(player.animation, "idle");
+  player.setAxis(.5, 0); advance(world, .3);
+  assert.equal(player.animation, "walk");
+  player.setAxis(1, 0); advance(world, .3);
+  assert.equal(player.animation, "run");
+  player.setAxis(0, 0); player.jump(); advance(world, .3);
+  assert.equal(player.animation, "air");
+  advance(world, 1);
+  assert.equal(player.animation, "idle");
+  const running = name => player.mixer._actions.filter(a => a.isRunning() && a.getEffectiveWeight() > .5).map(a => a.getClip().name);
+  assert.deepEqual(running(), ["Idle"]);
+});
+
+test("playAnimation plays a named clip once, then returns to movement", async t => {
+  const { world, player } = await playing(t, { model: riggedHero() });
+  assert.equal(player.playAnimation("wave"), .5, "case-insensitive, returns the duration");
+  advance(world, .2);
+  assert.equal(player.animation, "Wave");
+  advance(world, .6);
+  assert.equal(player.animation, "idle");
+  assert.equal(player.playAnimation("Missing"), null);
+});
+
+test("models without clips, first person and animate:false leave animation to the game", async t => {
+  const plain = await playing(t);
+  assert.equal(plain.player.mixer, null); assert.equal(plain.player.animation, null); assert.equal(plain.player.playAnimation("Idle"), null);
+  const off = await playing(t, { model: riggedHero(), animate: false });
+  assert.equal(off.player.mixer, null);
+  const fps = await playing(t, { model: riggedHero(), view: "first" });
+  assert.equal(fps.player.mixer, null);
+  const loose = await playing(t, { model: riggedHero().scene, animations: riggedHero(["Walk"]).animations });
+  assert.equal(loose.player.animation, "idle", "a walk-only rig holds a still walk pose for idle");
+});
+
+test("an NPC with clips animates from the velocity the game gives it", async t => {
+  const world = await fixture(t);
+  const npc = world.addNpc({ model: riggedHero(), feet: [3, 0, 0] });
+  advance(world, .3);
+  assert.equal(npc.animation, "idle");
+  npc.setVelocity([2, 0, 0]); advance(world, .3);
+  assert.equal(npc.animation, "walk");
+  npc.setVelocity([6, 0, 0]); advance(world, .3);
+  assert.equal(npc.animation, "run");
+  npc.remove();
+});

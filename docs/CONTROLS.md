@@ -14,7 +14,7 @@ import { createWorld, fitModel } from './rosie/roseblox.js';
 const world = await createWorld();
 world.addStaticMesh(groundMesh);            // every walkable surface and solid prop, after placing it
 const player = await world.addPlayer({
-  camera, canvas: renderer.domElement, model: heroGltf.scene,
+  camera, canvas: renderer.domElement, model: heroGltf,  // the loaded glTF, so its clips come too
   feet: [0, 0, 0], height: 1.8,             // world-space feet position and total height in meters
   view: 'third',                            // or 'first'
 });
@@ -79,7 +79,12 @@ and `forward` are fresh `THREE.Vector3`s that also read as `v[0]`, `v[1]`, `v[2]
 ## Models
 
 Models use local +Z as forward (generated assets do); pass `modelYaw` only for another
-axis. `addPlayer` fits a detached model to `height` with its feet on the ground. Never
+axis. Pass the loaded glTF as `model` (or `model: gltf.scene, animations: gltf.animations`).
+When it has clips named like `Idle`, `Walk`, `Run` and `Jump_Loop`, as rigged characters
+do, the player and NPCs play them automatically from speed and grounded state.
+`playAnimation('Interact')` plays any other clip once and returns to movement;
+`animation` names what is playing and `mixer` is its `THREE.AnimationMixer`. Pass
+`animate: false` to animate the model yourself. `addPlayer` fits a detached model to `height` with its feet on the ground. Never
 move or rotate `player.root` yourself; animate children of `player.visual`, and add
 equipment there: `const sword = fitModel(swordGltf.scene, {height: .8}); player.visual.add(sword);`.
 First person hides the hero model.
@@ -93,7 +98,8 @@ First person hides the hero model.
   `{type:'box', size:[x,y,z]}`, `{type:'sphere', radius}`, `{type:'capsule', radius, height}`;
   `position` is the collider center. Handles have `bindObject(mesh)`, `teleport`, `remove`,
 and for kinematic bodies `moveTo([x,y,z])`, which moves smoothly over the next step.
-- `addNpc({model, feet, height})`: a walking character; `setVelocity([vx,0,vz])`,
+- `addNpc({model, feet, height, speed, runSpeed})`: a walking character (`speed`/`runSpeed`
+  only pick its walk and run clips); `setVelocity([vx,0,vz])`,
   `faceDirection([dx,0,dz])`, `teleport`, `remove`. AI and combat are your code.
 - `castRay(origin, direction, {maxDistance, exclude: player.body})` and
   `castSegment(from, to, {exclude})` return `{body, point, normal, distance}` or null.

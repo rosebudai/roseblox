@@ -39,6 +39,14 @@ export function createPointerControls({canvas, getState, enter, pause, look,
     const wasPending = pending;
     clearPending(); setMode(next);
     if (wasPending) { clearInput(); enter(next); }
+    // Without capture the real cursor can leave the canvas (which pauses), so keep it visible.
+    if (next === 'free' && lockPointer && canvas.style) canvas.style.cursor = 'default';
+  }
+  // A click is a fresh gesture: retry capture when an earlier request was refused
+  // (browsers refuse a new lock for about a second after Escape releases one).
+  function retryLock() {
+    if (!lockPointer || mode !== 'free' || locked() || typeof canvas.requestPointerLock !== 'function') return;
+    try { canvas.requestPointerLock()?.catch?.(() => {}); } catch {}
   }
   function fallback(token) {
     if (token === epoch && pending) activate('free', token);
@@ -97,7 +105,9 @@ export function createPointerControls({canvas, getState, enter, pause, look,
     }
   });
   listen(canvas, 'mousedown', event => {
-    if (getState() === 'playing' && event.button === 0) fire(event);
+    if (getState() !== 'playing') return;
+    if (event.button === 0) fire(event);
+    retryLock();
   });
   listen(doc, 'mouseup', event => { if (event.button === 0) release(); });
   listen(canvas, 'mouseleave', event => {

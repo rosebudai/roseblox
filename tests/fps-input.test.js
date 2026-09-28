@@ -477,3 +477,22 @@ test('fire callback receives the original mouse event for compatible consumers',
   assert.equal(f.record.fireEvents[0], event);
   assert.equal(f.record.fireEvents[0].target, f.canvas);
 });
+
+test('a refused lock keeps the cursor visible and the next click retries capture', async t => {
+  let calls = 0;
+  const f = fixture(t, { request: ({ canvas, doc }) => {
+    calls++;
+    if (calls === 1) return Promise.reject(Object.assign(new Error('exited the lock too recently'), { name: 'SecurityError' }));
+    doc.pointerLockElement = canvas; doc.emit('pointerlockchange'); return Promise.resolve();
+  } });
+  f.canvas.style = { cursor: 'none' };
+  f.controls.start();
+  await new Promise(resolve => setTimeout(resolve, 0));
+  assert.equal(f.controls.mode, 'free');
+  assert.equal(f.record.state, 'playing');
+  assert.equal(f.canvas.style.cursor, 'default', 'an uncaptured cursor stays visible');
+  f.canvas.emit('mousedown', { button: 0, clientX: 500, clientY: 300 });
+  assert.equal(f.requests, 2);
+  assert.equal(f.controls.mode, 'locked');
+  assert.equal(f.record.pauses, 0);
+});
