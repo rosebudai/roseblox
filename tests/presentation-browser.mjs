@@ -4,7 +4,7 @@ import { mkdir, writeFile } from 'node:fs/promises';
 const base=process.argv[2]??'http://127.0.0.1:8913';
 const output=process.argv[3]??'/tmp/roseblox-presentation';
 await mkdir(output,{recursive:true});
-const browser=await chromium.launch({headless:true,executablePath:'/usr/local/bin/chromium',args:['--no-sandbox','--use-gl=angle','--use-angle=swiftshader','--enable-unsafe-swiftshader']});
+const browser=await chromium.launch({headless:true,executablePath:process.env.CANARY_CHROMIUM_EXECUTABLE??process.env.CHROMIUM_PATH??'/usr/local/bin/chromium',args:['--no-sandbox','--use-gl=angle','--use-angle=swiftshader','--enable-unsafe-swiftshader']});
 const checks=[],errors=[];
 try {
  for(const fallback of [false,true]) {
