@@ -57,6 +57,11 @@ export async function createRpgGame(config) {
   // Stalkers default to unkillable, the usual horror case.
   const maxHealthOf = def => def.health ?? (def.enemy === "stalker" ? Infinity : 30);
   const calm = () => ({ mode: "patrol", threat: 0, searchLeft: 0 });
+  /** Every stalker mode change, including a provoked chase and a respawn, reaches onAlert. */
+  function setStalk(actor, next) {
+    const before = actor.stalk.mode; actor.stalk = next;
+    if (next.mode !== before) config.onAlert?.(actor, { chase: "hunted", search: "searching" }[next.mode] ?? next.mode, api);
+  }
   const crosshair = view === "first" || kit.some(ability => kindOf(ability) === "ranged");
   const effects = [], shots = [], tracerGeometry = new THREE.BoxGeometry(.035, .035, 1).translate(0, 0, .5), shotGeometry = new THREE.SphereGeometry(.12, 10, 8);
   // Buttons and keyboard input share the same slot without UI-side index arithmetic.
@@ -256,7 +261,7 @@ export async function createRpgGame(config) {
   const chest = actor => actor.position().add(new THREE.Vector3(0, (actor.def.height ?? 1.8) * .55, 0));
   function hitEnemy(actor, ability, alert = false) {
     // A shot from beyond aggro range still provokes; melee keeps its proximity rules.
-    if (actor.stalk) { actor.stalk = stepStalker({ mode: "chase" }, { seen: true }, 0, actor.def); actor.lastKnown = player.position; }
+    if (actor.stalk) { setStalk(actor, stepStalker({ mode: "chase" }, { seen: true }, 0, actor.def)); actor.lastKnown = player.position; }
     if (!Number.isFinite(actor.health)) { config.onHit?.(actor, ability, api); return; }
     actor.health = Math.max(0, actor.health - (ability.damage ?? 10)); if (alert) actor.alertUntil = time + 8;
     combatHealth.delete(actor.def.id); combatHealth.set(actor.def.id, time + 5);
@@ -343,7 +348,7 @@ export async function createRpgGame(config) {
     combatHealth.clear(); ammo = ammoDefaults(); sneaking = false; setHidden(null);
     for (const shot of shots.splice(0)) removeMesh(shot.mesh);
     player.teleport(config.checkpoint ?? spawn); health = config.player?.health ?? 100;
-    for (const actor of actors.values()) if (actor.npc && !actor.dead) { actor.npc.teleport(actor.home.toArray()); actor.npc.setVelocity([0, 0, 0]); actor.health = maxHealthOf(actor.def); if (actor.stalk) actor.stalk = calm(); }
+    for (const actor of actors.values()) if (actor.npc && !actor.dead) { actor.npc.teleport(actor.home.toArray()); actor.npc.setVelocity([0, 0, 0]); actor.health = maxHealthOf(actor.def); actor.alertUntil = 0; if (actor.stalk) { setStalk(actor, calm()); actor.lastKnown = null; } }
     session.release("dead"); session.hold("pause"); refresh();
   }
   function restart() { if (!restartPromise) { dispose(); restartPromise = createRpgGame(config); } return restartPromise; }
@@ -471,10 +476,9 @@ export async function createRpgGame(config) {
         && world.castSegment(eye, chest(actor), { exclude: player.body });
       const clear = sight === false ? false : !sight || sight.body === actor.body;
       const senses = stalkerSenses({ distance, bearing, clear, hidden, moving, running, sneaking, mode: before }, def);
-      actor.stalk = stepStalker(actor.stalk, senses, dt, def);
+      setStalk(actor, stepStalker(actor.stalk, senses, dt, def));
       if (senses.seen || senses.heard) actor.lastKnown = player.position;
       const mode = actor.stalk.mode, still = () => { actor.npc.setVelocity([0, 0, 0]); return null; };
-      if (mode !== before) config.onAlert?.(actor, { chase: "hunted", search: "searching" }[mode] ?? mode, api);
       if (mode === "chase") {
         const reach = def.attackRange ?? 1.6;
         if (senses.seen && distance <= reach && reachable(actor, reach)) {

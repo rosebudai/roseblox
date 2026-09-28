@@ -12,7 +12,7 @@ const silence = () => { const b = new DataView(new ArrayBuffer(44 + 24000)), tex
  for (let i = 0; i < 24000; i++) b.setUint8(44 + i, 128);
  return URL.createObjectURL(new Blob([b.buffer], { type: 'audio/wav' })); };
 window.fixture = await createRpgGame({
- createUI, onReady(game){window.fixture=game;},
+ createUI, onReady(game){window.fixture=game;}, onAlert(actor,state){(window.alerts??=[]).push(`${actor.def.id}:${state}`);},
  title:combat?'Ember watch':'Garden walk', description:'Engineering fixture: approach the guide, F, accept, gather the token, then return.',
  assets:{person:{type:'model',url:new URLSearchParams(location.search).get('model')||'./fixture.gltf'},...(q.has('audio')&&{music:{type:'audio',url:silence()}})}, player:{model:'person',feet:[0,.1,0],view:new URLSearchParams(location.search).get('view')||undefined,...(q.has('animated')&&{animations:{idle:'Idle',walk:'Walk'}})},
  visuals:combat?{background:'#42201d',ambient:1,sunColor:'#ff9977'}:{background:'#87ceeb',ambient:2},

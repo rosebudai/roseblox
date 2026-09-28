@@ -32,3 +32,16 @@ test("stalker threat builds to a chase, a lost chase searches, then it returns t
   assert.equal(run(state, { seen: true, rate: .5 }, 1 / 60, def).mode, "chase", "being seen while searched for restarts the chase at once");
   state = run(state, nothing, 1.1, def); assert.deepEqual(state, { mode: "patrol", threat: 0, searchLeft: 0 });
 });
+
+test("a chase rides out a moment without contact instead of flapping through a search", () => {
+  const def = { loseAfter: 2 }, seen = { seen: true, rate: 1 };
+  let state = run(undefined, seen, 2, def), modes = new Set();
+  assert.equal(state.mode, "chase");
+  for (let i = 0; i < 60; i++) { state = stepStalker(state, i % 2 ? seen : {}, 1 / 60, def); modes.add(state.mode); }
+  assert.deepEqual([...modes], ["chase"], "alternating contact keeps one chase");
+  state = run(state, {}, .3, def); assert.equal(state.mode, "chase", "a short occlusion is not a lost chase");
+  state = run(state, seen, 1 / 60, def); state = run(state, {}, .6, def);
+  assert.equal(state.mode, "search");
+  state = run(state, {}, 1.3, def); assert.equal(state.mode, "search");
+  state = run(state, {}, .2, def); assert.equal(state.mode, "patrol", "the search ends loseAfter after the last contact");
+});

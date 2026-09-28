@@ -77,6 +77,15 @@ try{
  await page.keyboard.up('KeyC');
  await page.close();
 
+ // A provoking hit and a respawn change the alert state too, so both reach onAlert.
+ page=await open('far=1');
+ await page.evaluate(()=>{const h=window.fixture.actors.get('hunter').position();window.alerts=[];window.fixture.player.teleport([h.x,h.y+.1,h.z+1.2]);window.fixture.attack(0);});
+ assert.equal(await page.evaluate(()=>window.alerts[0]),'hunter:hunted');checks.push('provoked chase alerts');
+ await page.evaluate(()=>window.fixture.damage(100));await until(page,()=>window.fixtureState.phase==='dead');
+ await page.getByRole('button',{name:'Respawn',exact:true}).click();
+ assert.equal(await page.evaluate(()=>window.alerts.at(-1)),'hunter:patrol');checks.push('respawn calms with an alert');
+ await page.close();
+
  assert.deepEqual(errors,[]);
  const result={passed:true,checks,errors};
  await writeFile(`${output}/result.json`,JSON.stringify(result,null,2));console.log(JSON.stringify(result));

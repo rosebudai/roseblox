@@ -11,10 +11,18 @@ export function stalkerSenses({ distance, bearing, clear, hidden = false, moving
   return { seen, heard, rate };
 }
 
+/** Seconds a chase survives without contact, so a pillar or doorway does not flip it to a search and back. */
+const CHASE_GRACE = .5;
+
 /** Advance patrol → suspicious → chase → search → patrol. Threat is 0–1; reaching 1 starts a chase. */
-export function stepStalker({ mode = "patrol", threat = 0, searchLeft = 0 } = {}, { seen = false, heard = false, rate = 0 } = {}, dt, def = {}) {
+export function stepStalker({ mode = "patrol", threat = 0, searchLeft = 0, blind = 0 } = {}, { seen = false, heard = false, rate = 0 } = {}, dt, def = {}) {
   const notice = def.notice ?? 1.5, loseAfter = def.loseAfter ?? 6;
-  if (mode === "chase") return seen || heard ? { mode, threat: 1, searchLeft: loseAfter } : { mode: "search", threat: 1, searchLeft: loseAfter };
+  if (mode === "chase") {
+    if (seen || heard) return { mode, threat: 1, searchLeft: loseAfter, blind: 0 };
+    blind += dt;
+    // The search still ends loseAfter seconds after the last contact.
+    return blind < CHASE_GRACE ? { mode, threat: 1, searchLeft: loseAfter, blind } : { mode: "search", threat: 1, searchLeft: loseAfter - blind };
+  }
   if (rate > 0) {
     threat = Math.min(1, threat + dt * rate / notice);
     return threat >= 1 ? { mode: "chase", threat: 1, searchLeft: loseAfter } : { mode: mode === "search" ? "search" : "suspicious", threat, searchLeft };
