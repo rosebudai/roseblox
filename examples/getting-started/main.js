@@ -61,7 +61,9 @@ engine.registerSystem("rotate-cubes", {
     // Rotate all cubes (not the ground)
     for (const entity of world.with("renderable", "transform")) {
       if (entity.renderable.mesh && entity.transform.position.y > 0) {
-        entity.renderable.mesh.rotation.y += deltaTime;
+        entity.transform.rotation.multiply(
+          new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), deltaTime)
+        );
       }
     }
   },

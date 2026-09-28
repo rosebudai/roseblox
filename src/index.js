@@ -1,9 +1,15 @@
 import { GameSystems } from "./gameSystems.js";
 import * as CoreComponents from "./components/index.js";
 
-// The singleton engine instance that all game templates will interact with.
-// It is instantiated here, within the engine's private scope.
-const engine = new GameSystems();
+/** Create an isolated game engine; call dispose() when its preview is removed. */
+export function createEngine(options = {}) {
+  return new GameSystems(options);
+}
 
-// Export a curated public API.
-export { engine, CoreComponents };
+// Compatibility with existing templates importing the singleton.
+export const engine = createEngine();
+export { GameSystems, CoreComponents };
+export { createGame } from "./game.js";
+export { createVoxelKit } from "./voxelKit.js";
+export { createHud } from "./hud.js";
+export { createInteriorLighting, createFramedBox } from "./presentation.js";

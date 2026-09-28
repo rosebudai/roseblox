@@ -8,6 +8,7 @@
 
 import * as THREE from "three";
 import CameraControls from "camera-controls";
+import { createCameraObstacles } from "./cameraObstacles.js";
 
 // Install camera controls (like how physicsSetup calls RAPIER.init())
 CameraControls.install({ THREE });
@@ -24,13 +25,17 @@ export async function setupCamera(world, { renderer }, config = {}) {
 
   // Create camera controls (direct integration like renderer/physics)
   const camera = new THREE.PerspectiveCamera(
-    cameraConfig.FOV || 75,
-    window.innerWidth / window.innerHeight,
-    cameraConfig.NEAR || 0.1,
-    cameraConfig.FAR || 2000
+    cameraConfig.FOV ?? 75,
+    renderer.width / renderer.height,
+    cameraConfig.NEAR ?? 0.1,
+    cameraConfig.FAR ?? 2000
   );
+  // View models attached to the camera must participate in scene rendering
+  // and in the renderer resource's normal owned-graph disposal.
+  renderer.scene.add(camera);
 
   const controls = new CameraControls(camera, renderer.renderer.domElement);
+  const obstacles = createCameraObstacles(world, controls);
 
   // Configure controls with game settings
   controls.minDistance = cameraConfig.MIN_DISTANCE ?? 1;
@@ -66,16 +71,26 @@ export async function setupCamera(world, { renderer }, config = {}) {
     }
   }
 
-  // Return camera resources
-  const cameraResources = {
-    camera,
-    controls,
-  };
-
-  window.addEventListener("resize", () => {
-    camera.aspect = window.innerWidth / window.innerHeight;
+  const removeResizeListener = renderer.onResize((width, height) => {
+    camera.aspect = width / height;
     camera.updateProjectionMatrix();
   });
-
-  return cameraResources;
+  let disposed = false;
+  return {
+    camera,
+    controls,
+    obstacles,
+    dispose() {
+      if (disposed) return;
+      disposed = true;
+      removeResizeListener();
+      if (globalThis.document?.pointerLockElement === renderer.renderer.domElement) {
+        globalThis.document.exitPointerLock?.();
+      }
+      // Only proxy resources are owned here; rendered and external entries are borrowed.
+      obstacles.dispose();
+      controls.colliderMeshes.length = 0;
+      controls.dispose();
+    },
+  };
 }

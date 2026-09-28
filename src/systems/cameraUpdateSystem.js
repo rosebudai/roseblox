@@ -1,3 +1,5 @@
+import { getPresentationTransform } from "../presentationTransform.js";
+
 /**
  * Camera Update System
  *
@@ -11,7 +13,7 @@
  * @param {Object} cameraControls - The camera-controls instance.
  * @param {number} deltaTime - The time elapsed since the last frame.
  */
-export function cameraUpdateSystem(world, cameraControls, deltaTime) {
+export function cameraUpdateSystem(world, cameraControls, deltaTime, alpha = 1) {
   if (!cameraControls) {
     throw new Error(
       "cameraUpdateSystem: Camera controls not provided via dependency injection"
@@ -21,7 +23,7 @@ export function cameraUpdateSystem(world, cameraControls, deltaTime) {
   // 1. Update the camera's "look-at" target to the player's position.
   for (const entity of world) {
     if (entity.isCameraFollowTarget && entity.transform) {
-      const pos = entity.transform.position;
+      const pos = getPresentationTransform(entity, alpha).position;
       const offset = entity.isCameraFollowTarget.offset || { x: 0, y: 0, z: 0 };
       cameraControls.moveTo(
         pos.x + offset.x,

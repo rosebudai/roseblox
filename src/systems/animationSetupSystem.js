@@ -13,7 +13,7 @@ import { createAnimationMixer } from "../components/animationMixer.js";
  * @param {World} world - The ECS world instance.
  */
 export function animationSetupSystem(world) {
-  const query = world.with("animationData").where((e) => !e.animationMixer);
+  const query = world.with("animationData").without("animationMixer");
 
   for (const entity of query) {
     const { mixer, animations } = entity.animationData;

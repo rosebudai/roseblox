@@ -1,3 +1,5 @@
+import { capturePhysicsPose } from "../presentationTransform.js";
+
 /**
  * Physics State Sync System
  *
@@ -20,6 +22,7 @@ export function physicsStateSyncSystem(world, physicsWorld) {
 
   for (const entity of query) {
     const body = entity.physicsBody.rigidBody;
+    const presentation = capturePhysicsPose(entity);
 
     // AUTHORITY: Physics World → ECS Transform (ONE-WAY SYNC)
     const pos = body.translation();
@@ -27,6 +30,10 @@ export function physicsStateSyncSystem(world, physicsWorld) {
 
     const rot = body.rotation();
     entity.transform.rotation.set(rot.x, rot.y, rot.z, rot.w);
+    if (presentation) {
+      presentation.currentPosition.copy(entity.transform.position);
+      presentation.currentRotation.copy(entity.transform.rotation);
+    }
 
     // If the entity also has a character controller, sync its state.
     if (entity.physicsBody.controller && entity.movementState) {

@@ -1,102 +1,88 @@
-/**
- * Input Setup
- *
- * Handles initialization of the input system.
- * Self-contained setup that returns resources needed by other systems.
- */
-
-// Raw input state management - hardware agnostic
-const rawInputState = {
-  // Movement keys
-  forward: false, // W
-  backward: false, // S
-  left: false, // A
-  right: false, // D
-
-  // Action keys
-  jump: false, // Space
-  run: false, // Shift
-  escape: false, // ESC
-
-  // Mouse
-  mouseX: 0,
-  mouseY: 0,
-  mouseDown: false,
-};
-
-// Key mappings for keyboard
-const keyMappings = {
-  KeyW: "forward",
-  ArrowUp: "forward",
-
-  KeyS: "backward",
-  ArrowDown: "backward",
-
-  KeyA: "left",
-  ArrowLeft: "left",
-
-  KeyD: "right",
-  ArrowRight: "right",
-
-  Space: "jump",
-  ShiftLeft: "run",
-  ShiftRight: "run",
-  Escape: "escape",
+const defaultKeyMappings = {
+  KeyW: "forward", ArrowUp: "forward",
+  KeyS: "backward", ArrowDown: "backward",
+  KeyA: "left", ArrowLeft: "left",
+  KeyD: "right", ArrowRight: "right",
+  Space: "jump", ShiftLeft: "run", ShiftRight: "run", Escape: "escape",
 };
 
 /**
- * Setup the input system
- * @returns {Object} Input resource for other systems
+ * Input belongs to one canvas. Click/focus the canvas to receive keyboard input.
+ * The existing action API is retained; isKeyDown also accepts KeyboardEvent.code.
+ * setAction supports touch/gamepad adapters without synthesizing DOM events.
  */
-export async function setupInput() {
-  // Initialize raw input listeners
-  // Keyboard events
-  window.addEventListener("keydown", (event) => {
-    const action = keyMappings[event.code];
-    if (action) {
-      rawInputState[action] = true;
-      event.preventDefault(); // Prevent browser shortcuts
-    }
-  });
-
-  window.addEventListener("keyup", (event) => {
-    const action = keyMappings[event.code];
-    if (action) {
-      rawInputState[action] = false;
-      event.preventDefault();
-    }
-  });
-
-  // Mouse events (for future camera control)
-  window.addEventListener("mousemove", (event) => {
-    rawInputState.mouseX = event.clientX;
-    rawInputState.mouseY = event.clientY;
-  });
-
-  window.addEventListener("mousedown", () => {
-    rawInputState.mouseDown = true;
-  });
-
-  window.addEventListener("mouseup", () => {
-    rawInputState.mouseDown = false;
-  });
-
-  // The new input resource object
-  const inputResource = {
-    isActionActive: (action) => rawInputState[action] || false,
-    getMousePosition: () => ({
-      x: rawInputState.mouseX,
-      y: rawInputState.mouseY,
-    }),
-    isMouseDown: () => rawInputState.mouseDown,
-    getMovementVector: () => ({
-      x: (rawInputState.right ? 1 : 0) - (rawInputState.left ? 1 : 0),
-      // Original polarity: forward should be -Z.
-      z: (rawInputState.backward ? 1 : 0) - (rawInputState.forward ? 1 : 0),
-    }),
+export async function setupInput(config = {}) {
+  const eventWindow = config.inputWindow ?? globalThis.window;
+  const document = config.inputDocument ?? config.canvas?.ownerDocument ?? globalThis.document;
+  const target = config.inputTarget ?? config.canvas ?? eventWindow;
+  if (!eventWindow || !target) throw new Error("Input requires a browser window and a canvas/inputTarget.");
+  const keyMappings = { ...defaultKeyMappings, ...config.keyMappings };
+  const keys = new Set();
+  const actions = new Set();
+  const buttons = new Set();
+  let mouseX = 0;
+  let mouseY = 0;
+  let disposed = false;
+  const listeners = [];
+  const listen = (object, type, listener) => {
+    object?.addEventListener(type, listener);
+    listeners.push(() => object?.removeEventListener(type, listener));
   };
+  const reset = () => { keys.clear(); actions.clear(); buttons.clear(); };
+  const editable = (element) => element?.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(element?.tagName ?? "");
+  const focused = () => target === eventWindow || document?.pointerLockElement === target || document?.activeElement === target || target.contains?.(document?.activeElement);
+  const active = (action) => actions.has(action) || [...keys].some((key) => keyMappings[key] === action);
+  const originalTabIndex = target.getAttribute?.("tabindex");
+  if (target !== eventWindow && target.tabIndex < 0) target.tabIndex = 0;
 
-  return inputResource;
+  listen(eventWindow, "keydown", (event) => {
+    if (!focused() || editable(event.target) || event.metaKey || event.ctrlKey || event.altKey) return;
+    keys.add(event.code);
+    if (keyMappings[event.code]) event.preventDefault();
+  });
+  listen(eventWindow, "keyup", (event) => {
+    const wasDown = keys.delete(event.code);
+    if (wasDown && keyMappings[event.code] && !editable(event.target)) event.preventDefault();
+  });
+  listen(target, "mousedown", (event) => {
+    if (editable(event.target)) return;
+    target.focus?.({ preventScroll: true });
+    buttons.add(event.button ?? 0);
+  });
+  listen(eventWindow, "mouseup", (event) => buttons.delete(event.button ?? 0));
+  listen(eventWindow, "mousemove", (event) => {
+    if (!focused() && event.target !== target) return;
+    mouseX = event.clientX;
+    mouseY = event.clientY;
+  });
+  listen(eventWindow, "blur", reset);
+  listen(target, "blur", reset);
+  listen(document, "visibilitychange", () => { if (document.hidden) reset(); });
+  if (config.autoFocus !== false) target.focus?.({ preventScroll: true });
+
+  return {
+    isActionActive: active,
+    isKeyDown: (code) => keys.has(code),
+    setAction(action, enabled) {
+      if (disposed) return;
+      if (enabled) actions.add(action); else actions.delete(action);
+    },
+    getMousePosition: () => ({ x: mouseX, y: mouseY }),
+    isMouseDown: (button = 0) => buttons.has(button),
+    getMovementVector: () => ({
+      x: Number(active("right")) - Number(active("left")),
+      z: Number(active("backward")) - Number(active("forward")),
+    }),
+    reset,
+    dispose() {
+      if (disposed) return;
+      disposed = true;
+      reset();
+      for (const remove of listeners) remove();
+      if (target !== eventWindow) {
+        if (originalTabIndex == null) target.removeAttribute?.("tabindex");
+        else target.setAttribute?.("tabindex", originalTabIndex);
+      }
+    },
+  };
 }
-
-// --- The RAW INPUT QUERY API is now part of the returned resource object ---

@@ -10,12 +10,13 @@
  * @param {Object} physicsWorld - Rapier physics world
  * @param {Object} eventQueue - Rapier event queue
  */
-export function stepPhysics(physicsWorld, eventQueue) {
+export function stepPhysics(physicsWorld, eventQueue, deltaTime = 1 / 60) {
   if (!physicsWorld) {
     throw new Error("stepPhysics: Physics world is required");
   }
   if (!eventQueue) {
     throw new Error("stepPhysics: Event queue is required");
   }
+  physicsWorld.timestep = deltaTime;
   physicsWorld.step(eventQueue);
 }

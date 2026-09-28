@@ -14,17 +14,18 @@ import * as THREE from "three";
  * @returns {Object} Lighting resources
  */
 export async function setupLighting(world, { renderer }, config = {}) {
+  if (config.lighting === false) return { ambientLight: null, directionalLight: null };
   const lightingConfig = config.LIGHTING || {};
   const shadowConfig = config.SHADOWS || {};
 
   const ambientLight = new THREE.AmbientLight(
-    lightingConfig.AMBIENT_COLOR || 0xffffff,
-    lightingConfig.AMBIENT_INTENSITY || 0.4
+    lightingConfig.AMBIENT_COLOR ?? 0xffffff,
+    lightingConfig.AMBIENT_INTENSITY ?? 0.4
   );
 
   const directionalLight = new THREE.DirectionalLight(
-    lightingConfig.DIRECTIONAL_COLOR || 0xffffff,
-    lightingConfig.DIRECTIONAL_INTENSITY || 0.8
+    lightingConfig.DIRECTIONAL_COLOR ?? 0xffffff,
+    lightingConfig.DIRECTIONAL_INTENSITY ?? 0.8
   );
 
   const dirPos = lightingConfig.DIRECTIONAL_POSITION || {
