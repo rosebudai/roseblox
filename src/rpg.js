@@ -14,6 +14,14 @@ function feetVector(value = [0, 0, 0]) {
   return new THREE.Vector3(...value);
 }
 
+let standInGeometry, standInMaterial;
+/** A plain capsule for an actor created without a model, e.g. when its asset failed to load. */
+function standIn() {
+  standInGeometry ??= new THREE.CapsuleGeometry(.2, .6, 4, 12);
+  standInMaterial ??= new THREE.MeshStandardMaterial({ color: 0x9aa4b2, roughness: .7 });
+  return new THREE.Mesh(standInGeometry, standInMaterial);
+}
+
 /** Normalize a detached model into a unit-scale, feet-origin attachment frame. */
 export function fitRpgModel(model, { height = 1.8, yaw = 0 } = {}) {
   positive(height, "height");
@@ -75,7 +83,7 @@ export async function createRpgWorld({ playerDefaults = {}, ...options } = {}) {
   }
   async function addPlayer(config) {
     const { model: source, animations, animate = true, feet = [0, 0, 0], height = 1.8, radius = .35, modelYaw = 0, view = "third", touch = "auto", touchButtons = [], ...controls } = { ...playerDefaults, ...config };
-    const parts = modelParts(source, animations), model = parts.root;
+    const parts = modelParts(source, animations), model = source == null ? standIn() : parts.root;
     if (!["third", "first"].includes(view)) throw new Error("view must be third or first.");
     if (!["auto", true, false].includes(touch)) throw new Error("touch must be auto, true or false.");
     if (!Array.isArray(touchButtons)) throw new Error("touchButtons must be an array.");
@@ -136,7 +144,7 @@ export async function createRpgWorld({ playerDefaults = {}, ...options } = {}) {
     });
   }
   function addNpc({ model: source, animations, animate = true, speed = 2.5, runSpeed = 5, feet = [0, 0, 0], height = 1.8, radius = .35, modelYaw = 0, autoFaceMovement = true, ...config }) {
-    const parts = modelParts(source, animations), model = parts.root;
+    const parts = modelParts(source, animations), model = source == null ? standIn() : parts.root;
     const { spawn, visual } = prepareActor(model, feet, height, radius, modelYaw);
     let body;
     try {

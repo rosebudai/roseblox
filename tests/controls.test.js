@@ -57,6 +57,19 @@ test("createWorld players default to captured-mouse controls and movement facing
   assert.ok(fitModel);
 });
 
+for (const view of ["third", "first"]) test(`a ${view}-person player or NPC without a model stands in as a capsule`, async t => {
+  const world = await fixture(t), browser = surface(true);
+  const player = await world.addPlayer({ ...browser, model: undefined, feet: [0, 0, 0], height: 1.7, view });
+  const npc = world.addNpc({ feet: [3, 0, 0] });
+  for (const actor of [player, npc]) {
+    const size = new THREE.Box3().setFromObject(actor.visual).getSize(new THREE.Vector3());
+    assert.ok(Math.abs(size.y - (actor === player ? 1.7 : 1.8)) < .01, `fitted to its height (${size.y})`);
+  }
+  player.start(); player.setAxis(1, 0); advance(world, .5);
+  assert.ok(player.position.x > .5, "the stand-in player moves");
+  player.remove(); npc.remove();
+});
+
 for (const view of ["third", "first"]) test(`${view}-person look() turns the view only while playing`, async t => {
   const world = await fixture(t), browser = surface(true);
   const player = await world.addPlayer({ ...browser, model: hero(), view });

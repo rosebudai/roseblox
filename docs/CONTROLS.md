@@ -90,7 +90,7 @@ movement. `animation` names what is playing and `mixer` is its `THREE.AnimationM
 `animate: false` to animate the model yourself. `addPlayer` fits a detached model to `height` with its feet on the ground. Never
 move or rotate `player.root` yourself; animate children of `player.visual`, and add
 equipment there: `const sword = fitModel(swordGltf.scene, {height: .8}); player.visual.add(sword);`.
-First person hides the hero model.
+First person hides the hero model. Without a `model` (say its asset failed to load) the player or NPC is a plain capsule.
 
 ## World
 
