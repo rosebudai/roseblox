@@ -186,6 +186,22 @@ test(`${cameraMode} interpolates 144 Hz presentation while physics and teleports
 });
 }
 
+test("parented entities render at the interpolated parent pose at 144 Hz", async t => {
+  const game = await headlessGame(t, { lighting: false, gravity: { x: 0, y: 0, z: 0 } });
+  const actor = game.addCharacter({ position: [0, 2, 10], velocity: [0, 0, -6] });
+  const mesh = new THREE.Object3D();
+  game.scene.add(mesh);
+  const child = game.world.add({ parent: actor, transform: createTransform(), renderable: { mesh } });
+  const grandchild = game.world.add({ parent: child, transform: createTransform(), renderable: { mesh: new THREE.Object3D() } });
+  advance(game, 1);
+  for (let i = 0; i < 144; i++) {
+    game.engine.update(1 / 144);
+    assert.ok(mesh.position.distanceTo(actor.mesh.position) < 1e-6, "child follows the displayed parent");
+    assert.ok(grandchild.renderable.mesh.position.distanceTo(actor.mesh.position) < 1e-6);
+  }
+  assert.ok(child.transform.position.distanceTo(actor.transform.position) < 1e-6, "gameplay transform stays authoritative");
+});
+
 for (const removal of ["entity", "game"]) {
 test(`legacy skinned GLTF releases its clone-owned bone texture on ${removal} removal`, async t => {
   const game = await headlessGame(t, { lighting: false });

@@ -21,7 +21,15 @@ export function transformSyncSystem(world, alpha = 1) {
     // SYNC: ECS Transform → Visual Container (simple, clean)
     // Container moves, children automatically follow with their offsets
     const pose = getPresentationTransform(entity, alpha);
-    entity.renderable.mesh.position.copy(pose.position);
+    entity.renderable.mesh.position.copy(entity.parent?.transform ? parentPosition(entity, alpha) : pose.position);
     entity.renderable.mesh.quaternion.copy(pose.rotation);
   }
+}
+
+// parentingSystem copies the root's latest physics position in the fixed step.
+// Render the child at the root's interpolated position so it stays attached.
+function parentPosition(entity, alpha) {
+  let root = entity.parent;
+  for (let depth = 0; root.parent?.transform && depth < 16; depth++) root = root.parent;
+  return getPresentationTransform(root, alpha).position;
 }
