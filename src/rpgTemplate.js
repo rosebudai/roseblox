@@ -435,7 +435,7 @@ export async function createRpgGame(config) {
     });
     listen(window, "keyup", event => { if (event.code === "KeyC") setSneak(false); });
     const zones = new Set(), lastPlayer = player.position;
-    let moving = false, running = false;
+    let moving = false, running = false, captured = false, capturing = 0;
     function patrolGoal(actor, pos) {
       if (!actor.def.patrol?.length) return actor.home;
       const goal = new THREE.Vector3(...actor.def.patrol[actor.waypoint]);
@@ -528,7 +528,11 @@ export async function createRpgGame(config) {
       // Allow the fixed-step motor to catch up below 20 FPS; a 50ms cap made
       // jumps and cooldowns take longer in wall time on slower renderers.
       const dt = lastTime === null ? 0 : Math.max(0, Math.min(8 / 60, (now - lastTime) / 1000)); lastTime = now;
-      if (session.playing && !player.active) session.hold("pause");
+      // Mouse capture is granted asynchronously and reads as inactive until then. Pause when an
+      // active round loses it, or when a request never settles (the engine falls back within 0.7s).
+      if (!session.playing) { captured = false; capturing = 0; }
+      else if (player.active) { captured = true; capturing = 0; }
+      else if (captured || (capturing += dt) > 1.5) session.hold("pause");
       if (session.playing) time += dt;
       world.advance(dt, { paused: !session.playing, beforeStep: step });
       if (session.playing) {

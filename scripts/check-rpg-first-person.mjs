@@ -11,8 +11,9 @@ const checks=[], errors=[];
 try{
  for(let i=0;i<40;i++){if(await fetch('http://127.0.0.1:4337/').then(r=>r.ok).catch(()=>false))break;await new Promise(r=>setTimeout(r,100));}
  browser=await chromium.launch({headless:true,executablePath:process.env.CANARY_CHROMIUM_EXECUTABLE,args:['--no-sandbox','--use-angle=swiftshader','--enable-unsafe-swiftshader']});
- async function open(query){
+ async function open(query,init){
   const page=await browser.newPage({viewport:{width:1280,height:800}});page.on('pageerror',e=>errors.push(e.message));
+  if(init)await page.addInitScript(init);
   await page.goto(`http://127.0.0.1:4337/examples/rpg-template/?view=first${query}`);
   await page.getByRole('button',{name:'Play',exact:true}).click();
   await page.waitForFunction(()=>window.fixture.player.grounded&&window.fixture.player.active);
@@ -64,6 +65,20 @@ try{
  await page.getByRole('button',{name:'Resume',exact:true}).click();
  await page.waitForFunction(()=>window.fixtureState.phase==='playing'&&window.fixture.player.active);checks.push('pause and resume');
  await page.screenshot({path:`${output}/first-person-melee.png`});
+ await page.close();
+
+ // Browsers grant capture asynchronously; a slow grant must not pause the round it is starting.
+ page=await open('',()=>{
+  let owner=null;const changed=()=>document.dispatchEvent(new Event('pointerlockchange'));
+  Object.defineProperty(Document.prototype,'pointerLockElement',{configurable:true,get:()=>owner});
+  Element.prototype.requestPointerLock=function(){return new Promise(resolve=>setTimeout(()=>{owner=this;changed();resolve();},400));};
+  Document.prototype.exitPointerLock=function(){if(owner){owner=null;changed();}};
+ });
+ assert.equal(await page.evaluate(()=>document.pointerLockElement===window.fixture.renderer.domElement),true);
+ assert.equal(await page.evaluate(()=>window.fixtureState.phase),'playing');checks.push('delayed capture grant');
+ await page.evaluate(()=>document.exitPointerLock());
+ await page.waitForFunction(()=>window.fixtureState.phase==='paused');checks.push('losing capture pauses');
+ await page.close();
  assert.deepEqual(errors,[]);
  const result={passed:true,checks,errors};
  await writeFile(`${output}/result.json`,JSON.stringify(result,null,2));console.log(JSON.stringify(result));
