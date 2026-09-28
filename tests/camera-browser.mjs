@@ -1,13 +1,11 @@
 import { chromium } from "@playwright/test";
-import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
+import { serveRepository } from "../scripts/rpg-check-server.mjs";
 import assert from "node:assert/strict";
 import { mkdir, writeFile } from "node:fs/promises";
 
 // Without a URL argument, serve the repository like the scripts/check-*.mjs checks.
-const server = process.argv[2] ? null : spawn("python3", ["-m", "http.server", "4352", "--bind", "127.0.0.1"], { cwd: fileURLToPath(new URL("../", import.meta.url)), stdio: "ignore" });
-process.on("exit", () => server?.kill());
-for (let i = 0; server && i < 40 && !(await fetch("http://127.0.0.1:4352/").then(r => r.ok, () => false)); i++) await new Promise(r => setTimeout(r, 100));
+const server = process.argv[2] ? null : await serveRepository(fileURLToPath(new URL("../", import.meta.url)), 4352);
 const base = process.argv[2] ?? "http://127.0.0.1:4352";
 const output = process.argv[3] ?? "/tmp/roseblox-camera-evidence";
 await mkdir(output, { recursive: true });

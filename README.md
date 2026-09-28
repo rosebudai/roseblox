@@ -96,7 +96,7 @@ python -m http.server 8893
 
 Open `/examples/modern/` for Meadow Run, a small playable demonstration of the compact API. `/examples/getting-started/` and `/examples/adventure/` retain the original ECS examples. The build writes `roseblox-game-engine.js` as a compatibility filename for existing template symlinks.
 
-Run browser checks in a Chromium-capable workstation after `npm run build`. Set `CANARY_CHROMIUM_EXECUTABLE` to the Chromium binary (the default is `/usr/local/bin/chromium`). The npm scripts serve the repository themselves; the direct commands take the URL of an existing server:
+Run browser checks in a Chromium-capable workstation after `npm run build`. Set `CANARY_CHROMIUM_EXECUTABLE` to the Chromium binary; without it the `check-*` scripts use Playwright's own browser and the `tests/*-browser.mjs` checks fall back to `/usr/local/bin/chromium`. The npm scripts serve the repository themselves; the direct commands take the URL of an existing server:
 
 ```sh
 npm run test:browser-game
