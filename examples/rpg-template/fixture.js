@@ -12,7 +12,7 @@ window.fixture = await createRpgGame({
  characters:[{id:'guide',name:'Guide',model:'person',feet:[-1.6,0,-1],dialogue:{text:'Retrieve the token and return.',choices:[{label:'Test error cleanup',action(){throw new Error('Intentional fixture choice failure')}}]}}, ...(combat?[{id:'enemy',name:'Sentinel',model:'person',feet:[0,0,-2.4],enemy:true,health:40,aggroRange:0}]:[]), ...(melee?[
   {id:'side',name:'Side enemy',feet:[1.2,0,-2.1]}, {id:'blocked',name:'Behind wall',feet:[-1.2,0,-2.2]},
   {id:'behind',name:'Behind player',feet:[0,0,2]}, {id:'far',name:'Far enemy',feet:[0,0,-5]},
- ].map(def=>({...def,model:'person',enemy:true,health:40,aggroRange:0})):[])],
+ ].map(def=>({...def,model:'person',enemy:true,health:40,aggroRange:0})):[]).map(def=>new URLSearchParams(location.search).has('animated')?{...def,animations:{idle:'Idle',walk:'Idle'}}:def)],
  objects:[{id:'token',name:'Token',model:'person',feet:[1.6,0,-1],height:.7,item:'token'}, ...(interaction?[
   {id:'scenery',name:'Decoration',model:'person',feet:[0,0,-.8],height:.4,width:.25},
   {id:'blocked-token',name:'Hidden token',model:'person',feet:[0,0,-1.6],height:.5,width:.25,item:'hidden'},
