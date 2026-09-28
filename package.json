@@ -10,7 +10,9 @@
     "./rpg": "./src/rpg.js",
     "./visuals": "./src/visuals.js",
     "./rpg-template": "./src/rpgTemplate.js",
-    "./controls": "./src/controls.js"
+    "./controls": "./src/controls.js",
+    "./package.json": "./package.json",
+    "./src/*": "./src/*"
   },
   "scripts": {
     "build": "node scripts/build.mjs",
