@@ -30,7 +30,7 @@ export function setupSceneManagement(world, { renderer, physics }) {
   const unsubscribeRemoved = world.onEntityRemoved.subscribe((entity) => {
     // Components may have been attached since the most recent frame.
     track(entity);
-    for (const [mesh, ownership] of state.meshes) if (ownership.entity === entity) releaseMesh(state, mesh, ownership, world);
+    for (const [mesh, ownership] of state.meshes) if (ownership.entity === entity) releaseMesh(state, mesh, ownership, world, true);
     for (const [body, owner] of state.bodies) if (owner === entity) releaseBody(state, body, physics);
   });
   state.dispose = () => {
@@ -45,14 +45,17 @@ export function setupSceneManagement(world, { renderer, physics }) {
   return state;
 }
 
-function releaseMesh(state, mesh, { entity, ownsResources, mixer }, world) {
+function releaseMesh(state, mesh, { entity, ownsResources, mixer }, world, removing = false) {
   mesh.removeFromParent();
   mixer?.stopAllAction();
-  if (mixer && world.has(entity)) {
+  if (mixer && (removing || world.has(entity))) {
     // Retire only the old mesh's animation components. A replacement factory
     // may already have attached new animationData for the next setup phase.
-    if (entity.animationMixer?.mixer === mixer) world.removeComponent(entity, "animationMixer");
-    if (entity.animationData?.mixer === mixer) world.removeComponent(entity, "animationData");
+    // While Miniplex removes an entity, world.has() is still true but queries
+    // are already cleared; removeComponent would reindex it back into them.
+    const retire = removing ? (key) => delete entity[key] : (key) => world.removeComponent(entity, key);
+    if (entity.animationMixer?.mixer === mixer) retire("animationMixer");
+    if (entity.animationData?.mixer === mixer) retire("animationData");
   }
   // GLTF clones share buffers/materials owned by AssetManager.
   if (ownsResources) disposeObject(mesh);

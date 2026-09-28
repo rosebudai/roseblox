@@ -225,6 +225,27 @@ test(`replacement mesh preserves its animation while the old ${initialized ? "in
 });
 }
 
+test("removing an animated entity does not reindex it into queries", () => {
+  const game = fixture();
+  const mesh = new THREE.Object3D();
+  const mixer = new THREE.AnimationMixer(mesh);
+  game.scene.add(mesh);
+  const entity = game.world.add({
+    transform: { position: new THREE.Vector3() },
+    renderable: { mesh },
+    physicsBody: { rigidBody: { isValid: () => true } },
+    animationData: { mixer, animations: [] },
+  });
+  sceneManagementSystem(game.world, game);
+  animationSetupSystem(game.world);
+  const bodies = game.world.with("physicsBody", "transform").connect();
+  const renderables = game.world.with("renderable", "transform").connect();
+  game.world.remove(entity);
+  assert.deepEqual({ bodies: bodies.has(entity), renderables: renderables.has(entity) }, { bodies: false, renderables: false });
+  assert.equal(entity.animationMixer, undefined);
+  assert.deepEqual(game.removedBodies, [entity.physicsBody.rigidBody]);
+});
+
 test("unknown mesh factories produce actionable errors", () => {
   const game = fixture();
   game.world.add({ renderable: { type: "typo", needsMesh: true } });
