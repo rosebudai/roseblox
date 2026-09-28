@@ -47,6 +47,18 @@ async function headlessGame(t, options = {}) {
   return game;
 }
 
+test("createGame releases the initialized engine when later game setup fails", async t => {
+  const addResource = GameSystems.prototype.addResource;
+  let engine;
+  t.mock.method(GameSystems.prototype, "addResource", function (name, instance) {
+    if (name === "gameSurfaceMaterials") { engine = this; throw new Error("surface setup failed"); }
+    return addResource.call(this, name, instance);
+  });
+  await assert.rejects(headlessGame(t), /surface setup failed/);
+  assert.equal(engine.disposed, true);
+  assert.equal(engine.world.entities.length, 0);
+});
+
 test("interior key has a clear path below a solid roof and its owned lights release with the game", async t => {
   const game = await headlessGame(t, { lighting: false });
   const roof = game.addBox({ size: [20, 0.4, 24], position: [0, 6.2, 0] });

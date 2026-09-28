@@ -157,28 +157,36 @@ export async function createGame(options = {}) {
   await engine.init({ ...options, autoStart: false });
   const rendererResource = engine.getResource("renderer");
   const { scene, renderer } = rendererResource;
-  const environment = createEnvironment({ scene, renderer });
-  engine.addResource("gameEnvironment", environment);
-  const surfaceMaterials = createSurfaceMaterials({ renderer });
-  engine.addResource("gameSurfaceMaterials", surfaceMaterials);
   const cameraResource = engine.getResource("camera");
   const { camera, controls, obstacles } = cameraResource;
-  // Standalone disabled controls hand the pose to caller-owned FPS/cutscene
-  // code. Follow still updates controls, including its mouse-disabled fixed mode.
-  cameraResource.shouldUpdateControls = () => !firstPerson && (follow !== null || controls.enabled !== false);
-  cameraResource.shouldUpdatePointerLock = () => !firstPerson;
   const physics = engine.getResource("physics");
   const input = engine.getResource("input");
-  models = createModelAttachments({
-    world: engine.world,
-    assets: engine.getResource("assets"),
-    registerCameraVisual: entity => game.registerCameraVisual(entity),
-    isVisualHiddenByCamera: entity => firstPerson?.ownsHiddenVisual(entity) || cameraVisuals.get(entity)?.hiddenVisual?.mesh === entity.mesh,
-  });
-  engine.addResource("modelAttachments", models);
-  cameraModels = createCameraModels({ camera, assets: engine.getResource("assets") });
-  engine.addResource("cameraModels", cameraModels);
-  engine.addResource("firstPersonCamera", { dispose: () => releaseFirstPerson() });
+  let environment, surfaceMaterials;
+  // The engine already owns the canvas, physics and listeners; release them if
+  // the rest of the game cannot be built.
+  try {
+    environment = createEnvironment({ scene, renderer });
+    engine.addResource("gameEnvironment", environment);
+    surfaceMaterials = createSurfaceMaterials({ renderer });
+    engine.addResource("gameSurfaceMaterials", surfaceMaterials);
+    // Standalone disabled controls hand the pose to caller-owned FPS/cutscene
+    // code. Follow still updates controls, including its mouse-disabled fixed mode.
+    cameraResource.shouldUpdateControls = () => !firstPerson && (follow !== null || controls.enabled !== false);
+    cameraResource.shouldUpdatePointerLock = () => !firstPerson;
+    models = createModelAttachments({
+      world: engine.world,
+      assets: engine.getResource("assets"),
+      registerCameraVisual: entity => game.registerCameraVisual(entity),
+      isVisualHiddenByCamera: entity => firstPerson?.ownsHiddenVisual(entity) || cameraVisuals.get(entity)?.hiddenVisual?.mesh === entity.mesh,
+    });
+    engine.addResource("modelAttachments", models);
+    cameraModels = createCameraModels({ camera, assets: engine.getResource("assets") });
+    engine.addResource("cameraModels", cameraModels);
+    engine.addResource("firstPersonCamera", { dispose: () => releaseFirstPerson() });
+  } catch (error) {
+    engine.dispose();
+    throw error;
+  }
 
   function assertLive() {
     if (engine.disposed) throw new Error("This game is disposed. Create a new game before adding work.");
