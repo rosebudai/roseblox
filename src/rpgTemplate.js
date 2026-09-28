@@ -351,6 +351,8 @@ export async function createRpgGame(config) {
     for (const actor of actors.values()) if (actor.npc && !actor.dead) { actor.npc.teleport(actor.home.toArray()); actor.npc.setVelocity([0, 0, 0]); actor.health = maxHealthOf(actor.def); actor.alertUntil = 0; if (actor.stalk) { setStalk(actor, calm()); actor.lastKnown = null; } }
     session.release("dead"); session.hold("pause"); refresh();
   }
+  // dispose()/restart() may run while setup awaits; each await then checks before building more.
+  function alive() { if (disposed) throw new Error("RPG game was disposed while loading."); }
   function restart() { if (!restartPromise) { dispose(); restartPromise = createRpgGame(config); } return restartPromise; }
   function model(id) {
     const value = assets.get(id); if (!value?.scene) throw new Error(`Missing model asset: ${id}`);
@@ -399,6 +401,7 @@ export async function createRpgGame(config) {
       else throw new Error(`Unknown asset type for ${id}.`);
       assets.set(id, value);
     }));
+    alive();
     if (config.skybox) { const sky = assets.get(config.skybox); if (!sky?.isTexture) throw new Error("Skybox must reference a texture asset."); sky.mapping = THREE.EquirectangularReflectionMapping; scene.background = sky; if (config.visuals?.environment !== false) scene.environment = sky; }
     else scene.background = new THREE.Color(config.visuals?.background ?? "#97b8d2");
     if (config.visuals?.fog) scene.fog = new THREE.Fog(...config.visuals.fog);
@@ -407,9 +410,12 @@ export async function createRpgGame(config) {
     sun.castShadow = renderer.shadowMap.enabled; sun.shadow.mapSize.set(2048, 2048); sun.shadow.normalBias = .035;
     const extent = config.visuals?.shadowExtent ?? 45; Object.assign(sun.shadow.camera, { left: -extent, right: extent, top: extent, bottom: -extent, near: .5, far: 160 }); sun.shadow.camera.updateProjectionMatrix(); scene.add(sun, sun.target);
     const physics = await createRpgWorld();
+    if (disposed) physics.dispose();
+    alive();
     scenery = createRpgScenery(scene, physics);
     world = { ...physics, addStaticMesh: scenery.addStaticMesh };
     await config.buildWorld?.(api);
+    alive();
     scenery.finalize();
     if (!world.getDiagnostics().bodies) throw new Error("World requires a walkable collision surface in buildWorld.");
     const p = config.player ?? {};
@@ -418,6 +424,7 @@ export async function createRpgGame(config) {
       canvas: renderer.domElement, camera, view: p.view ?? "third", ...(scheme === "mmo"
         ? { controlMode: "mmo", keyboardLayout: "classic", facing: "camera", onSelect: ({ hit }) => select(hit?.body.data?.rpgId ?? null) }
         : { controlMode: "pointer", facing: "camera", onAttack: () => attack(0) }) });
+    alive();
     scene.add(player.root);
     function animate(actor, def, gone = () => false) {
       const clips = assets.get(def.model)?.animations ?? [];
@@ -591,6 +598,8 @@ export async function createRpgGame(config) {
     });
     loading = false; refresh(); config.onReady?.(api); return api;
   } catch (error) {
+    // A superseded load is not a failure; a restart's caller gets the replacement game.
+    if (disposed) return restartPromise ?? api;
     renderer?.setAnimationLoop(null); session?.dispose();
     loadError = error.message ?? String(error); loading = false; refresh(); throw error;
   }

@@ -126,6 +126,21 @@ try {
   assert.match(rejected.drops,/drops of pelt must be a positive integer/);
   assert.match(rejected.heal,/Mend heal must be a positive number/);
   await invalid.close(); console.log(JSON.stringify({invalid_content_rejected:Object.keys(rejected)}));
+  // Restart or dispose while loading: the superseded setup stops instead of finishing a second game.
+  for(const action of ['restart','dispose']){
+    const early=await browser.newPage(), earlyErrors=[];
+    early.on('pageerror',e=>earlyErrors.push(e.message));
+    await early.goto('http://127.0.0.1:4335/examples/rpg-template/?holdWorld=1');
+    await early.waitForFunction(()=>window.heldWorlds?.length===1);
+    await early.evaluate(action=>{window.heldGames[0][action]();},action);
+    if(action==='restart')await early.waitForFunction(()=>window.heldWorlds.length===2);
+    await early.evaluate(()=>window.heldWorlds.forEach(release=>release()));
+    if(action==='restart')await early.waitForFunction(()=>window.fixtureState?.phase==='ready');
+    else await early.evaluate(()=>new Promise(resolve=>setTimeout(resolve,300)));
+    assert.deepEqual(await early.evaluate(()=>({roots:document.querySelectorAll('.rpg').length,ready:window.readyCount??0})),action==='restart'?{roots:1,ready:1}:{roots:0,ready:0});
+    assert.deepEqual(earlyErrors,[]); await early.close();
+  }
+  console.log(JSON.stringify({superseded_load_stops:true}));
   const recovery=await browser.newPage(), recoveryErrors=[];
   recovery.on('pageerror',e=>recoveryErrors.push(e.message));
   let fail=true;
