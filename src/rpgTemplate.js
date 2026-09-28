@@ -383,12 +383,12 @@ export async function createRpgGame(config) {
         ? { controlMode: "mmo", keyboardLayout: "classic", facing: "camera", onSelect: ({ hit }) => select(hit?.body.data?.rpgId ?? null) }
         : { controlMode: "pointer", facing: "camera", onAttack: () => attack(0) }) });
     scene.add(player.root);
-    function animate(actor, def) {
+    function animate(actor, def, gone = () => false) {
       const clips = assets.get(def.model)?.animations ?? [];
       if (!clips.length || !def.animations) return;
       const mixer = new THREE.AnimationMixer(actor.visual ?? actor.root), actions = {};
       for (const [state, name] of Object.entries(def.animations)) { const clip = clips.find(c => c.name === name); if (clip) actions[state] = mixer.clipAction(clip); }
-      mixers.push({ mixer, actions, actor, previous: actor.position.clone(), current: null });
+      mixers.push({ mixer, actions, actor, gone, previous: actor.position.clone(), current: null });
     }
     animate(player, p);
     for (const equipment of p.equipment ?? []) {
@@ -400,7 +400,7 @@ export async function createRpgGame(config) {
       const home = new THREE.Vector3(...(def.feet ?? [0, 0, 0])); let body, visual, npc;
       if (def.enemy || def.patrol) {
         npc = world.addNpc({ model: model(def.model), feet: home.toArray(), height: def.height ?? 1.8, radius: def.radius ?? .35, modelYaw: def.modelYaw ?? 0, data: { rpgId: def.id } });
-        body = npc.body; visual = npc.root; animate(npc, def);
+        body = npc.body; visual = npc.root; animate(npc, def, () => actors.get(def.id)?.dead);
       } else {
         visual = fitRpgModel(model(def.model), { height: def.height ?? 1.8, yaw: def.modelYaw ?? 0 }); visual.position.copy(home);
         body = world.addBody({ type: "fixed", position: home.clone().add(new THREE.Vector3(0, (def.height ?? 1.8) / 2, 0)).toArray(), shape: { type: "box", size: [def.width ?? .8, def.height ?? 1.8, def.width ?? .8] }, data: { rpgId: def.id } });
@@ -530,7 +530,10 @@ export async function createRpgGame(config) {
       if (session.playing) time += dt;
       world.advance(dt, { paused: !session.playing, beforeStep: step });
       if (session.playing) {
-        for (const item of mixers) {
+        for (let i = mixers.length - 1; i >= 0; i--) {
+          const item = mixers[i];
+          // A defeated or collected actor has no body left to read a position from.
+          if (item.gone()) { item.mixer.stopAllAction(); mixers.splice(i, 1); continue; }
           const pos = item.actor.position, speed = pos.distanceTo(item.previous) / Math.max(dt, .001); item.previous.copy(pos);
           const next = !item.actor.grounded ? "jump" : speed > .1 ? "walk" : "idle";
           if (next !== item.current && item.actions[next]) { item.actions[item.current]?.fadeOut(.15); item.actions[next].reset().fadeIn(.15).play(); item.current = next; } item.mixer.update(dt);

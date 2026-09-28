@@ -13,7 +13,7 @@ window.fixture = await createRpgGame({
  characters:[{id:'guide',name:'Guide',model:'person',feet:[-1.6,0,-1],dialogue:{text:'Retrieve the token and return.',choices:[{label:'Test error cleanup',action(){throw new Error('Intentional fixture choice failure')}}]}}, ...(combat?[{id:'enemy',name:'Sentinel',model:'person',feet:[0,0,ranged?-8:-2.4],enemy:true,health:40,aggroRange:0}]:[]).filter(def=>!(gunner||stalker)||def.id!=='enemy'), ...(melee?[
   {id:'side',name:'Side enemy',feet:[1.2,0,-2.1]}, {id:'blocked',name:'Behind wall',feet:[-1.2,0,-2.2]},
   {id:'behind',name:'Behind player',feet:[0,0,2]}, {id:'far',name:'Far enemy',feet:[0,0,-5]},
- ].map(def=>({...def,model:'person',enemy:true,health:40,aggroRange:0})):[]), ...(ranged?[{id:'side',name:'Side enemy',model:'person',feet:[2.5,0,-8],enemy:true,health:40,aggroRange:0}]:[]),
+ ].map(def=>({...def,model:'person',enemy:true,health:40,aggroRange:0})):[]).map(def=>q.has('animated')?{...def,animations:{idle:'Idle',walk:'Idle'}}:def), ...(ranged?[{id:'side',name:'Side enemy',model:'person',feet:[2.5,0,-8],enemy:true,health:40,aggroRange:0}]:[]),
   ...(stalker?[{id:'hunter',name:'Hunter',model:'person',feet:[0,0,q.has('far')?-40:-12],enemy:'stalker',damage:25,loseAfter:2}]:[]),
   ...(gunner?[{id:'gunner',name:'Gunner',model:'person',feet:[0,0,-10],enemy:'ranged',health:40,damage:6,attackCooldown:1}]:[])],
  objects:[{id:'token',name:'Token',model:'person',feet:[1.6,0,-1],height:.7,item:'token'}, ...(stalker?[{id:'closet',name:'Closet',model:'person',feet:[0,0,1.6],height:2,width:1,hide:true}]:[]), ...(interaction?[

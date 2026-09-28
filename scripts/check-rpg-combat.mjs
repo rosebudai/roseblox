@@ -74,5 +74,16 @@ try{
  assert.ok(jump.rise>.9&&jump.rise<1.1,JSON.stringify(jump));
  assert.ok(jump.wallSeconds>.55&&jump.wallSeconds<1.1,JSON.stringify(jump));
  result.slowFrameJump=jump;await slow.close();
+ // An animated enemy's body is removed on defeat; later frames must keep rendering.
+ const animated=await browser.newPage({viewport:{width:1280,height:800}}), animatedErrors=[];animated.on('pageerror',e=>animatedErrors.push(e.message));
+ await animated.goto('http://127.0.0.1:4336/examples/rpg-template/?melee=1&animated=1&model=./fixture-animated.gltf');
+ await animated.getByRole('button',{name:'Play',exact:true}).click();await animated.waitForFunction(()=>window.fixture.player.grounded);
+ for(let i=0;i<6&&!await animated.evaluate(()=>window.fixture.actors.get('side').dead);i++){
+   await animated.waitForFunction(()=>window.fixtureState.abilities[0].remaining===0);await animated.keyboard.press('Digit1');
+ }
+ assert.equal(await animated.evaluate(()=>window.fixture.actors.get('side').dead),true);
+ const frames=await animated.evaluate(async()=>{const start=window.fixture.renderer?.info.render.frame;for(let i=0;i<10;i++)await new Promise(requestAnimationFrame);return start===undefined?10:window.fixture.renderer.info.render.frame-start;});
+ assert.ok(frames>=5,`frames kept rendering (${frames})`);assert.deepEqual(animatedErrors,[]);
+ result.checks.push('animated enemy defeat keeps rendering');await animated.close();
  await writeFile(output+'/checks.json',JSON.stringify(result,null,2));console.log(JSON.stringify(result));
 }finally{await browser?.close();server.kill();}
