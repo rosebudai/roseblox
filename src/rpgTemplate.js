@@ -30,7 +30,7 @@ export async function createRpgGame(config) {
   Object.assign(ui.style, { position: "absolute", inset: "0", pointerEvents: "none" });
   root.append(ui);
   let renderer, world, scenery, player, session, disposed = false, selected = null, dialogue = null, time = 0, uiTime = 0, lastTime = null;
-  let health = config.player?.health ?? 100, noticeUntil = 0, dialogueSerial = 0, noticeText = "", hidden = false, hideSpot = null, sneaking = false;
+  let health = config.player?.health ?? 100, noticeUntil = 0, dialogueSerial = 0, noticeText = "", hidden = false, hideSpot = null, hideFeet = null, sneaking = false;
   let presentation, loading = true, loadError = null, previousFocusKey, restartPromise;
   const listeners = [], assets = new Map(), actors = new Map(), mixers = [], cooldowns = new Map(), cleanups = [], combatHealth = new Map();
   const characterIds = new Set((config.characters ?? []).map(def => def.id));
@@ -232,7 +232,7 @@ export async function createRpgGame(config) {
   }
   /** Hiding holds the player in place beside the spot; only stalkers are fooled by it. */
   function setHidden(spot) {
-    hidden = !!spot; hideSpot = spot;
+    hidden = !!spot; hideSpot = spot; hideFeet = spot ? player.position : null;
     if (view !== "first") player.visual.visible = !hidden;
     applySpeed(); refresh();
   }
@@ -549,6 +549,9 @@ export async function createRpgGame(config) {
       if (player.position.y < (config.rescueY ?? -30)) damage(health);
       config.update?.(dt, api);
     }
+    // Hiding also rules out jumping. The engine has no per-player jump switch, so a hop out of
+    // hiding is undone in the same fixed step, before it is ever rendered.
+    function holdHidden() { if (hidden && player.position.y > hideFeet.y + .05) player.teleport(hideFeet.toArray()); }
     renderer.setAnimationLoop(now => {
       // Allow the fixed-step motor to catch up below 20 FPS; a 50ms cap made
       // jumps and cooldowns take longer in wall time on slower renderers.
@@ -559,7 +562,7 @@ export async function createRpgGame(config) {
       else if (player.active) { captured = true; capturing = 0; }
       else if (captured || (capturing += dt) > 1.5) session.hold("pause");
       if (session.playing) time += dt;
-      world.advance(dt, { paused: !session.playing, beforeStep: step });
+      world.advance(dt, { paused: !session.playing, beforeStep: step, afterStep: holdHidden });
       if (session.playing) {
         for (let i = mixers.length - 1; i >= 0; i--) {
           const item = mixers[i];

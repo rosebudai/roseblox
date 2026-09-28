@@ -32,6 +32,9 @@ try{
  assert.equal(await page.evaluate(()=>window.fixture.player.visual.visible),false);
  const [x0,,z0]=await pos(page);await page.keyboard.down('KeyW');await page.waitForTimeout(500);await page.keyboard.up('KeyW');
  const [x1,,z1]=await pos(page);assert.ok(Math.hypot(x1-x0,z1-z0)<.05,'hidden players stay put');
+ const [,y0]=await pos(page);await page.keyboard.down('Space');
+ const top=await page.evaluate(async()=>{let top=-Infinity;for(let i=0;i<40;i++){await new Promise(requestAnimationFrame);top=Math.max(top,window.fixture.player.position.y);}return top;});
+ await page.keyboard.up('Space');assert.ok(top-y0<.1,`hidden players cannot jump (rose ${top-y0})`);
  await page.keyboard.press('Digit1');
  assert.equal(await page.evaluate(()=>window.fixtureState.abilities[0].remaining),0,'no attacks from hiding');
  await until(page,()=>window.fixtureState.alert===''&&window.fixtureState.threat===0);checks.push('hiding calms an unalerted stalker');
