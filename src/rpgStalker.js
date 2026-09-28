@@ -8,20 +8,21 @@ export function stalkerSenses({ distance, bearing, clear, hidden = false, moving
   const seen = !!clear && (caught || (!hidden && distance <= sight && bearing <= fov / 2));
   const heard = !hidden && moving && distance <= hearing;
   const rate = seen ? (running ? 2 : sneaking ? .5 : 1) * (distance < sight / 3 ? 2 : 1) : heard ? .5 : 0;
-  return { seen, heard, rate };
+  return { seen, heard, rate, hidden };
 }
 
-/** Seconds a chase survives without contact, so a pillar or doorway does not flip it to a search and back. */
+/** Seconds a chase survives without contact, so a pillar or doorway does not flip it to a search and back.
+ * Hiding skips it: the chaser only finds a hidden player it is already within 2 m of. */
 const CHASE_GRACE = .5;
 
 /** Advance patrol → suspicious → chase → search → patrol. Threat is 0–1; reaching 1 starts a chase. */
-export function stepStalker({ mode = "patrol", threat = 0, searchLeft = 0, blind = 0 } = {}, { seen = false, heard = false, rate = 0 } = {}, dt, def = {}) {
+export function stepStalker({ mode = "patrol", threat = 0, searchLeft = 0, blind = 0 } = {}, { seen = false, heard = false, rate = 0, hidden = false } = {}, dt, def = {}) {
   const notice = def.notice ?? 1.5, loseAfter = def.loseAfter ?? 6;
   if (mode === "chase") {
     if (seen || heard) return { mode, threat: 1, searchLeft: loseAfter, blind: 0 };
     blind += dt;
     // The search still ends loseAfter seconds after the last contact.
-    return blind < CHASE_GRACE ? { mode, threat: 1, searchLeft: loseAfter, blind } : { mode: "search", threat: 1, searchLeft: loseAfter - blind };
+    return !hidden && blind < CHASE_GRACE ? { mode, threat: 1, searchLeft: loseAfter, blind } : { mode: "search", threat: 1, searchLeft: loseAfter - blind };
   }
   if (rate > 0) {
     threat = Math.min(1, threat + dt * rate / notice);

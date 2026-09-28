@@ -45,3 +45,11 @@ test("a chase rides out a moment without contact instead of flapping through a s
   state = run(state, {}, 1.3, def); assert.equal(state.mode, "search");
   state = run(state, {}, .2, def); assert.equal(state.mode, "patrol", "the search ends loseAfter after the last contact");
 });
+
+test("hiding out of reach ends a chase at once", () => {
+  const def = { loseAfter: 2 };
+  let state = run(undefined, { seen: true, rate: 1 }, 2, def);
+  const hidden = stalkerSenses({ distance: 3, bearing: 0, clear: true, hidden: true, mode: state.mode }, def);
+  assert.equal(hidden.seen, false);
+  assert.equal(stepStalker(state, hidden, 1 / 60, def).mode, "search", "no grace for a player who ducked into hiding");
+});
