@@ -379,11 +379,15 @@ export async function createMechanics(options = {}) {
           e.body.setTranslation(vector(e.body.translation()).add(carry), true);
           world.propagateModifiedBodyPositionsToColliders();
         }
-        // Rapier carries a rider along a moveTo platform and up with it, but not down:
-        // follow a descent this step so the rider stays grounded and can jump.
+        // Rapier lifts a rider with a rising moveTo platform but loses it on a descent:
+        // carry the platform's whole step then, swept so a ledge or wall still blocks it.
         if (prop && !prop.state && prop.body.isKinematic()) {
-          const drop = prop.body.nextTranslation().y - prop.body.translation().y;
-          if (drop < 0 && drop > -1) ride.y = drop;
+          ride.copy(prop.body.nextTranslation()).sub(prop.body.translation());
+          if (ride.y < 0 && ride.lengthSq() < 1) {
+            const own = prop.collider;
+            e.controller.computeColliderMovement(e.collider, ride, RAPIER.QueryFilterFlags.EXCLUDE_SENSORS, undefined, c => c !== own && c.handle !== own.handle);
+            ride.copy(e.controller.computedMovement());
+          } else ride.set(0, 0, 0);
         }
       }
       const wasHeld = e.state.jumpHeld, wasGrounded = e.state.grounded;
