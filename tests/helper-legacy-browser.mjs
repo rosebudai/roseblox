@@ -4,7 +4,7 @@ import assert from "node:assert/strict";
 const base = process.argv[2] ?? "http://127.0.0.1:8893";
 const output = process.argv[3] ?? "/tmp/roseblox-legacy-evidence";
 await mkdir(output, { recursive: true });
-const browser = await chromium.launch({ executablePath: process.env.CHROMIUM_PATH ?? "/usr/local/bin/chromium", headless: true, args: ["--no-sandbox", "--use-gl=angle", "--use-angle=swiftshader", "--enable-unsafe-swiftshader"] });
+const browser = await chromium.launch({ executablePath: process.env.CANARY_CHROMIUM_EXECUTABLE ?? process.env.CHROMIUM_PATH ?? "/usr/local/bin/chromium", headless: true, args: ["--no-sandbox", "--use-gl=angle", "--use-angle=swiftshader", "--enable-unsafe-swiftshader"] });
 const results = [];
 try {
   for (const example of ["getting-started", "adventure"]) {

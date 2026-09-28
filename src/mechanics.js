@@ -13,6 +13,15 @@ function positive(value, name, zero = false) {
   if (!Number.isFinite(value) || (zero ? value < 0 : value <= 0)) throw new Error(`${name} must be ${zero ? "non-negative" : "positive"}.`);
   return value;
 }
+const RUN_AXIS = .9;
+const components = ["x", "y", "z"];
+// On the prototype, so clone() and other Vector3 methods that build a new vector keep index access.
+class ReadableVector3 extends THREE.Vector3 {}
+for (let i = 0; i < 3; i++) Object.defineProperty(ReadableVector3.prototype, i, { get() { return this[components[i]]; }, set(value) { this[components[i]] = value; } });
+/** Vectors handed to game code read as `v.x` or `v[0]`, since inputs take `[x, y, z]`. */
+export function readable(v) {
+  return new ReadableVector3(v.x, v.y, v.z);
+}
 function vector(value, fallback = [0, 0, 0]) {
   value ??= fallback;
   if (Array.isArray(value) && value.length !== 3) throw new Error("Expected a three-component vector.");
@@ -43,7 +52,7 @@ export async function createMechanics(options = {}) {
   const entries = new Map(), colliders = new Map(), contacts = new Map(), listeners = new Set(), changedColliders = new Set();
   let nextId = 1, accumulator = 0, disposed = false, paused = false, advancing = false;
   const diagnostics = { frames: 0, fixedSteps: 0, simulatedSeconds: 0, droppedSeconds: 0, negativeDeltaFrames: 0 };
-  const forward = new THREE.Vector3(), right = new THREE.Vector3(), desired = new THREE.Vector3();
+  const forward = new THREE.Vector3(), right = new THREE.Vector3(), desired = new THREE.Vector3(), ride = new THREE.Vector3();
   const heading = new THREE.Quaternion(), parentRotation = new THREE.Quaternion();
   const live = () => { if (disposed) throw new Error("Mechanics is disposed."); };
   function requireEntry(handle) {
@@ -129,7 +138,7 @@ export async function createMechanics(options = {}) {
     const entry = { body, collider, position, quaternion, previousPosition: position.clone(), previousRotation: quaternion.clone(), renderPosition: position.clone(), renderRotation: quaternion.clone(), bindings: new Set(), controller: null, state: null, fps: null, input: null };
     const handle = {
       id: nextId++, data: config.data ?? {},
-      get position() { return requireEntry(handle).position.clone(); },
+      get position() { return readable(requireEntry(handle).position.clone()); },
       get quaternion() { return requireEntry(handle).quaternion.clone(); },
       get grounded() { const e = requireEntry(handle); return e.vehicle?.grounded ?? e.state?.grounded ?? false; },
       get removed() { return !entries.has(handle); },
@@ -154,12 +163,14 @@ export async function createMechanics(options = {}) {
       teleport(value) {
         const e = requireEntry(handle), p = vector(value);
         p.y += e.spawnClearance ?? 0;
+        if (e.body.isKinematic() && !e.state) (e.carry ??= new THREE.Vector3()).add(vector(e.body.translation()).negate().add(p));
         e.body.setTranslation(p, true);
         if (e.body.isKinematic()) e.body.setNextKinematicTranslation(p);
         e.body.setLinvel({ x: 0, y: 0, z: 0 }, true); e.body.setAngvel({ x: 0, y: 0, z: 0 }, true);
-        if (e.state) { e.state.verticalVelocity = 0; e.state.grounded = false; e.state.jumpHeld = false; e.jumpRequested = false; e.velocity.set(0, 0, 0); }
+        // Clear motion only: a held key, stick or touch button keeps driving the player.
+        if (e.state) { e.state.verticalVelocity = 0; e.state.grounded = false; e.state.jumpHeld = !!e.input?.isActionActive("jump"); e.jumpRequested = false; e.velocity.set(0, 0, 0); e.boost.set(0, 0, 0); e.inputVelocity.set(0, 0, 0); e.jumpPressed = false; }
         changedColliders.add(e.collider);
-        e.input?.reset(); e.vehicle?.resetMotion(); readPose(e, true); present(e, 1); e.fps?.update(); e.third?.updateCamera(); e.vehicle?.updateCamera();
+        e.vehicle?.resetMotion(); readPose(e, true); present(e, 1); e.fps?.update(); e.third?.updateCamera(); e.vehicle?.updateCamera();
       },
       bindObject(object) { return bind(requireEntry(handle), object); },
       remove: () => remove(handle),
@@ -181,7 +192,21 @@ export async function createMechanics(options = {}) {
       entry.state = { enabled: true, grounded: false, verticalVelocity: 0, jumpHeld: false };
       entry.velocity = vector(config.velocity); entry.spawnClearance = spawnClearance;
       entry.forwardAxis = forwardAxis; entry.autoFaceMovement = config.autoFaceMovement === true;
-      entry.jumpSpeed = jumpSpeed; entry.jumpRequested = false;
+      entry.jumpSpeed = jumpSpeed; entry.jumpRequested = false; entry.jumpPressed = false;
+      entry.boost = new THREE.Vector3(); entry.inputVelocity = new THREE.Vector3();
+      Object.defineProperties(handle, {
+        /** World velocity from walking, pushes and the vertical speed (0 while standing). */
+        velocity: { get: () => { const e = requireEntry(handle); return readable(e.inputVelocity.clone().add(e.boost).setY(e.state.grounded && e.state.verticalVelocity <= 0 ? 0 : e.state.verticalVelocity)); } },
+        /** A new jump press this fixed step that the engine did not use for a ground jump. */
+        jumpPressed: { get: () => requireEntry(handle).jumpPressed },
+        jumpHeld: { get: () => requireEntry(handle).state.jumpHeld },
+      });
+      /** Set the velocity now; gravity keeps acting and walking input takes the horizontal part back as the push fades. */
+      handle.setMotion = value => {
+        const e = requireEntry(handle), v = vector(value);
+        e.state.verticalVelocity = v.y;
+        e.boost.set(v.x - e.inputVelocity.x, 0, v.z - e.inputVelocity.z);
+      };
       handle.faceDirection = value => {
         const e = requireEntry(handle), direction = vector(value);
         if (direction.x * direction.x + direction.z * direction.z < 1e-12) return;
@@ -217,6 +242,8 @@ export async function createMechanics(options = {}) {
       for (const name of ["active", "enabled", "locked"]) Object.defineProperty(handle, name, { get: () => entry.third[name] });
       for (const name of ["start", "stop", "pause", "resume"]) handle[name] = () => entry.third[name]();
       handle.setAction = (action, enabled) => { requireEntry(handle); entry.input.setAction(action, enabled); };
+      handle.setAxis = (x, z) => { requireEntry(handle); entry.input.setAxis(x, z); };
+      handle.look = (dx, dy) => { requireEntry(handle); entry.third.look(dx, dy); };
       handle.setMoveSpeed = (walk, run = walk) => {
         requireEntry(handle);
         const speed = positive(walk, "speed", true), runSpeed = positive(run, "runSpeed", true);
@@ -246,7 +273,17 @@ export async function createMechanics(options = {}) {
       Object.defineProperties(handle, {
         active: { get: () => entry.fps.active }, locked: { get: () => entry.fps.locked }, enabled: { get: () => entry.fps.enabled },
       });
-      Object.assign(handle, { start: () => { live(); entry.fps.start(); }, stop: () => entry.fps.stop(), setAction: (action, enabled) => { requireEntry(handle); entry.input.setAction(action, enabled); } });
+      Object.assign(handle, {
+        start: () => { live(); entry.fps.start(); }, stop: () => entry.fps.stop(),
+        pause: () => entry.fps.pause(), resume: () => { live(); entry.fps.resume(); },
+        setAction: (action, enabled) => { requireEntry(handle); entry.input.setAction(action, enabled); },
+        setAxis: (x, z) => { requireEntry(handle); entry.input.setAxis(x, z); },
+        look: (dx, dy) => { requireEntry(handle); entry.fps.look(dx, dy); },
+        setMoveSpeed: (walk, run = walk) => {
+          requireEntry(handle);
+          entry.speed = positive(walk, "speed", true); entry.runSpeed = positive(run, "runSpeed", true);
+        },
+      });
       return handle;
     } catch (error) {
       if (cameraOwners.get(camera) === entry) cameraOwners.delete(camera);
@@ -319,7 +356,8 @@ export async function createMechanics(options = {}) {
         right.crossVectors(forward, up).normalize();
         desired.copy(right).multiplyScalar(move.x).addScaledVector(forward, -move.z);
         if (desired.lengthSq() > 1) desired.normalize();
-        desired.multiplyScalar(e.input.isActionActive("run") ? e.runSpeed : e.speed);
+        // Pushing the analog stick to its edge runs, so touch players can run without a button.
+        desired.multiplyScalar(e.input.isActionActive("run") || e.input.getAxisLength?.() > RUN_AXIS ? e.runSpeed : e.speed);
         const pressed = e.input.consumeActionPress("jump");
         jumpDown = player.active && (jumpDown || e.input.isActionActive("jump") || pressed);
         if (player.active && (e.third?.facing !== "movement" || desired.lengthSq() > 1e-8)) {
@@ -331,12 +369,42 @@ export async function createMechanics(options = {}) {
         const sign = e.forwardAxis === "+Z" ? 1 : -1;
         e.body.setNextKinematicRotation(heading.setFromAxisAngle(up, Math.atan2(sign * desired.x, sign * desired.z)));
       }
-      moveCharacter({ physics, body: e.body, collider: e.collider, controller: e.controller, state: e.state, velocity: desired, jumpDown, jumpSpeed: e.jumpSpeed ?? 0 }, dt);
+      e.inputVelocity.set(desired.x, 0, desired.z);
+      desired.add(e.boost);
+      ride.set(0, 0, 0);
+      if (e.state.grounded) {
+        // A platform teleported this step carries its rider the same distance.
+        const support = supportUnder(e)?.body, prop = support && entries.get(support), carry = prop?.carry;
+        if (carry && carry.lengthSq() > 0 && carry.lengthSq() < 1) {
+          e.body.setTranslation(vector(e.body.translation()).add(carry), true);
+          world.propagateModifiedBodyPositionsToColliders();
+        }
+        // Rapier lifts a rider with a rising moveTo platform but loses it on a descent:
+        // carry the platform's whole step then, swept so a ledge or wall still blocks it.
+        if (prop && !prop.state && prop.body.isKinematic()) {
+          ride.copy(prop.body.nextTranslation()).sub(prop.body.translation());
+          if (ride.y < 0 && ride.lengthSq() < 1) {
+            const own = prop.collider;
+            e.controller.computeColliderMovement(e.collider, ride, RAPIER.QueryFilterFlags.EXCLUDE_SENSORS, undefined, c => c !== own && c.handle !== own.handle);
+            ride.copy(e.controller.computedMovement());
+          } else ride.set(0, 0, 0);
+        }
+      }
+      const wasHeld = e.state.jumpHeld, wasGrounded = e.state.grounded;
+      moveCharacter({ physics, body: e.body, collider: e.collider, controller: e.controller, state: e.state, velocity: desired, jumpDown, jumpSpeed: e.jumpSpeed ?? 0, carry: ride }, dt);
+      e.jumpPressed = jumpDown && !wasHeld && !(wasGrounded && (e.jumpSpeed ?? 0) > 0);
+      e.boost.multiplyScalar(Math.exp(-(e.state.grounded ? 10 : 1.5) * dt));
+      if (e.boost.lengthSq() < 1e-6) e.boost.set(0, 0, 0);
     }
+    for (const e of entries.values()) e.carry?.set(0, 0, 0);
     world.timestep = dt; world.step(eventQueue);
     changedColliders.clear();
     for (const e of entries.values()) readPose(e);
     processContacts();
+  }
+  function supportUnder(e) {
+    const t = e.body.translation(), feet = e.collider.halfHeight() + e.collider.radius();
+    return castRay([t.x, t.y - feet + .05, t.z], [0, -1, 0], { maxDistance: .25, exclude: e.handle });
   }
   function castRay(origin, direction, config = {}) {
     live();
@@ -367,7 +435,7 @@ export async function createMechanics(options = {}) {
       if (direct && (!hit || direct.timeOfImpact < hit.timeOfImpact)) hit = { ...direct, collider };
     }
     if (!hit) return null;
-    return { body: colliders.get(hit.collider.handle), point: o.addScaledVector(d, hit.timeOfImpact), normal: vector(hit.normal), distance: hit.timeOfImpact };
+    return { body: colliders.get(hit.collider.handle), point: readable(o.addScaledVector(d, hit.timeOfImpact)), normal: readable(hit.normal), distance: hit.timeOfImpact };
   }
   const api = {
     addBody, addCharacter, addFpsPlayer, addThirdPersonPlayer, addArcadeVehicle, castRay,

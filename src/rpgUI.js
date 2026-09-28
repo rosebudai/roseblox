@@ -20,6 +20,7 @@ export function createRpgView(state, actions, labels = {}) {
     ...state, actions, panel, playing: state.phase === "playing", menu: ["ready", "paused"].includes(state.phase),
     healthText: `${Math.ceil(state.health)} / ${state.maxHealth}`,
     healthFraction: state.maxHealth > 0 ? Math.max(0, Math.min(1, state.health / state.maxHealth)) : 0,
+    threatText: state.hidden ? "Hidden" : { hunted: "Hunted", searching: "Searching", suspicious: "Suspicious" }[state.alert] ?? "",
     interactionText: state.interaction ? `F · ${state.interaction.action} ${state.interaction.name}` : "",
     questLog: state.quests.filter(q => ["active", "completed"].includes(q.state)).map(q => ({
       ...q, completed: q.state === "completed", objectives: q.objectives.map((objective, index) => {
@@ -29,7 +30,8 @@ export function createRpgView(state, actions, labels = {}) {
       }),
     })),
     abilities: state.abilities.map(a => ({ ...a, id: a.slot ?? a.key, action: a.activate,
-      disabled: state.phase !== "playing" || a.remaining > 0, cooldownText: a.remaining > 0 ? `${a.remaining.toFixed(1)}s` : "" })),
+      disabled: state.phase !== "playing" || a.remaining > 0, cooldownText: a.remaining > 0 ? `${a.remaining.toFixed(1)}s` : "",
+      ammoText: a.ammo === undefined ? "" : a.reloading ? "Reloading" : a.reserve === null ? `${a.ammo}` : `${a.ammo} / ${a.reserve}` })),
   };
 }
 

@@ -6,6 +6,7 @@ import { sceneManagementSystem, setupSceneManagement } from "../src/systems/scen
 import { triggerDetectionSystem } from "../src/systems/triggerDetectionSystem.js";
 import { animationSetupSystem } from "../src/systems/animationSetupSystem.js";
 import { collisionSystem, setControllerContacts } from "../src/systems/collisionSystem.js";
+import { gltfMeshFactory } from "../src/resources/renderer/meshFactories.js";
 
 function fixture() {
   const world = new World();
@@ -224,6 +225,45 @@ test(`replacement mesh preserves its animation while the old ${initialized ? "in
   assert.equal(newAction.isRunning(), false);
 });
 }
+
+test("removing an animated entity does not reindex it into queries", () => {
+  const game = fixture();
+  const mesh = new THREE.Object3D();
+  const mixer = new THREE.AnimationMixer(mesh);
+  game.scene.add(mesh);
+  const entity = game.world.add({
+    transform: { position: new THREE.Vector3() },
+    renderable: { mesh },
+    physicsBody: { rigidBody: { isValid: () => true } },
+    animationData: { mixer, animations: [] },
+  });
+  sceneManagementSystem(game.world, game);
+  animationSetupSystem(game.world);
+  const bodies = game.world.with("physicsBody", "transform").connect();
+  const renderables = game.world.with("renderable", "transform").connect();
+  game.world.remove(entity);
+  assert.deepEqual({ bodies: bodies.has(entity), renderables: renderables.has(entity) }, { bodies: false, renderables: false });
+  assert.equal(entity.animationMixer, undefined);
+  assert.deepEqual(game.removedBodies, [entity.physicsBody.rigidBody]);
+});
+
+test("a GLTF that was not preloaded shows an owned placeholder instead of stopping the game", t => {
+  const game = fixture();
+  const warnings = [];
+  t.mock.method(console, "warn", message => warnings.push(message));
+  game.assets = { cache: new Map() };
+  game.renderer.getMeshFactory = key => key === "gltf" ? gltfMeshFactory : undefined;
+  const entity = game.world.add({ renderable: { type: "gltf", assetKey: "hero", needsMesh: true } });
+  sceneManagementSystem(game.world, game);
+  const mesh = entity.renderable.mesh;
+  assert.equal(mesh.parent, game.scene);
+  assert.equal(warnings.length, 1);
+  assert.match(warnings[0], /hero.*not preloaded.*config\.assets/);
+  let releases = 0;
+  mesh.geometry.addEventListener("dispose", () => releases++);
+  game.world.remove(entity);
+  assert.equal(releases, 1, "removal releases the placeholder's own geometry");
+});
 
 test("unknown mesh factories produce actionable errors", () => {
   const game = fixture();

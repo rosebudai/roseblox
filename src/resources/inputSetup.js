@@ -9,7 +9,7 @@ const defaultKeyMappings = {
 /**
  * Input belongs to one canvas. Click/focus the canvas to receive keyboard input.
  * The existing action API is retained; isKeyDown also accepts KeyboardEvent.code.
- * setAction supports touch/gamepad adapters without synthesizing DOM events.
+ * setAction and setAxis support touch/gamepad adapters without synthesizing DOM events.
  */
 export async function setupInput(config = {}) {
   const eventWindow = config.inputWindow ?? globalThis.window;
@@ -23,13 +23,14 @@ export async function setupInput(config = {}) {
   const buttons = new Set();
   let mouseX = 0;
   let mouseY = 0;
+  let axisX = 0, axisZ = 0;
   let disposed = false;
   const listeners = [];
   const listen = (object, type, listener) => {
     object?.addEventListener(type, listener);
     listeners.push(() => object?.removeEventListener(type, listener));
   };
-  const reset = () => { keys.clear(); actions.clear(); pressedActions.clear(); buttons.clear(); };
+  const reset = () => { keys.clear(); actions.clear(); pressedActions.clear(); buttons.clear(); axisX = axisZ = 0; };
   const editable = (element) => element?.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(element?.tagName ?? "");
   const focused = () => target === eventWindow || document?.pointerLockElement === target || document?.activeElement === target || target.contains?.(document?.activeElement);
   const active = (action) => actions.has(action) || [...keys].some((key) => keyMappings[key] === action);
@@ -71,11 +72,20 @@ export async function setupInput(config = {}) {
       if (disposed) return;
       if (enabled) { if (!active(action)) pressedActions.add(action); actions.add(action); } else actions.delete(action);
     },
+    /** Analog movement in [-1, 1] (x right, z backward), added to keyboard movement. */
+    setAxis(x, z) {
+      if (disposed) return;
+      if (!Number.isFinite(x) || !Number.isFinite(z)) throw new Error("Movement axis must be finite.");
+      const length = Math.hypot(x, z), scale = length > 1 ? 1 / length : 1;
+      axisX = x * scale; axisZ = z * scale;
+    },
+    /** How far the analog axis is pushed, 0 to 1. */
+    getAxisLength: () => Math.hypot(axisX, axisZ),
     getMousePosition: () => ({ x: mouseX, y: mouseY }),
     isMouseDown: (button = 0) => buttons.has(button),
     getMovementVector: () => ({
-      x: Number(active("right")) - Number(active("left")),
-      z: Number(active("backward")) - Number(active("forward")),
+      x: Number(active("right")) - Number(active("left")) + axisX,
+      z: Number(active("backward")) - Number(active("forward")) + axisZ,
     }),
     reset,
     dispose() {

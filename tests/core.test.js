@@ -178,3 +178,12 @@ test("continue mode disables a broken system and preserves other gameplay", asyn
   assert.equal(game.getDiagnostics().errorCount, 1);
   game.dispose();
 });
+
+test("package exports keep the manifest and deep source imports available", async () => {
+  const { createRequire } = await import("node:module");
+  const require = createRequire(import.meta.url);
+  assert.equal(require("roseblox-game-engine/package.json").name, "roseblox-game-engine");
+  const components = await import("roseblox-game-engine/src/components/index.js");
+  assert.equal(typeof components.createTransform, "function");
+  assert.equal((await import("roseblox-game-engine/src/gameSystems.js")).GameSystems, GameSystems);
+});

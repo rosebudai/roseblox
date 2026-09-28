@@ -41,7 +41,7 @@ export function createThirdPersonCamera({ entry, config, input, castSegment, cas
   let distance = THREE.MathUtils.clamp(options.distance, options.minDistance, options.maxDistance);
   let enabled = false, active = false, suspended = false;
   const mmo = options.controlMode === "mmo";
-  const mouseOptions = { canvas, doc, win: doc.defaultView, input,
+  const mouseOptions = { canvas, doc, win: doc.defaultView, input, lockPointer: config.lockPointer !== false,
     getState: () => active ? "playing" : enabled ? "paused" : "ready",
     enter: () => { active = true; canvas.style.cursor = mmo ? "default" : "none"; canvas.focus({ preventScroll: true }); },
     pause: () => { active = false; canvas.style.cursor = cursor; },
@@ -73,19 +73,22 @@ export function createThirdPersonCamera({ entry, config, input, castSegment, cas
     get locked() { return doc.pointerLockElement === canvas; },
     get facing() { return options.facing; },
     direction(out) { return out.set(-Math.sin(heading), 0, -Math.cos(heading)); },
+    /** Host look input (touch drag, gamepad) in mouse pixels; turns the character like a captured mouse. */
+    look(dx, dy) { if (active) mouseOptions.look(dx, dy, true); },
     movement() {
       const move = input.getMovementVector();
       if (mmo && options.keyboardLayout === "classic" && mouse.turning) move.x += Number(input.isActionActive("turnRight")) - Number(input.isActionActive("turnLeft"));
       if (mmo && mouse.walking) move.z = -1;
       return move;
     },
+    // start() also ends a pause(), so a pause menu can resume with it; canvas clicks cannot.
     start() {
       requireLive();
-      if (suspended) return;
-      enabled = true; controller.updateCamera(); mouse.start();
+      suspended = false; enabled = true; controller.updateCamera(); mouse.start();
     },
-    pause() { suspended = true; mouse.cancel(); },
-    resume() { suspended = false; controller.start(); },
+    // Cancelling fallback look has no capture-loss event, so end the round here.
+    pause() { suspended = true; mouse.cancel(); active = false; canvas.style.cursor = cursor; },
+    resume() { controller.start(); },
     stop() { suspended = false; enabled = active = false; mouse.cancel(); canvas.style.cursor = cursor; },
     updateInput(dt) {
       mouse.update(dt);

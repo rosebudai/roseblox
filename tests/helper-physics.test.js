@@ -23,6 +23,7 @@ async function headlessGame(t, options = {}) {
     getBoundingClientRect() { return {left:0,top:0,width:800,height:600}; }
   }
   const active = new Set();
+  const pressed = new Set();
   const registerCore = GameSystems.prototype._registerCoreSystems;
   t.mock.method(GameSystems.prototype, "_registerCoreSystems", function () {
     registerCore.call(this);
@@ -36,14 +37,27 @@ async function headlessGame(t, options = {}) {
     this.resources.get("input").factory = () => ({
       getMovementVector:()=>({x:Number(active.has("right"))-Number(active.has("left")),z:Number(active.has("backward"))-Number(active.has("forward"))}),
       isActionActive:action=>active.has(action),
-      setAction(action,enabled) { if(enabled)active.add(action);else active.delete(action); },
-      reset:()=>active.clear(),
+      consumeActionPress:action=>pressed.delete(action),
+      setAction(action,enabled) { if(enabled){if(!active.has(action))pressed.add(action);active.add(action);}else active.delete(action); },
+      reset:()=>{active.clear();pressed.clear();},
     });
   });
   const game = await createGame({autoStart:false,...options});
   t.after(()=>game.dispose());
   return game;
 }
+
+test("createGame releases the initialized engine when later game setup fails", async t => {
+  const addResource = GameSystems.prototype.addResource;
+  let engine;
+  t.mock.method(GameSystems.prototype, "addResource", function (name, instance) {
+    if (name === "gameSurfaceMaterials") { engine = this; throw new Error("surface setup failed"); }
+    return addResource.call(this, name, instance);
+  });
+  await assert.rejects(headlessGame(t), /surface setup failed/);
+  assert.equal(engine.disposed, true);
+  assert.equal(engine.world.entities.length, 0);
+});
 
 test("interior key has a clear path below a solid roof and its owned lights release with the game", async t => {
   const game = await headlessGame(t, { lighting: false });
@@ -185,6 +199,22 @@ test(`${cameraMode} interpolates 144 Hz presentation while physics and teleports
   assert.equal(actor.body.translation().x, 8);
 });
 }
+
+test("parented entities render at the interpolated parent pose at 144 Hz", async t => {
+  const game = await headlessGame(t, { lighting: false, gravity: { x: 0, y: 0, z: 0 } });
+  const actor = game.addCharacter({ position: [0, 2, 10], velocity: [0, 0, -6] });
+  const mesh = new THREE.Object3D();
+  game.scene.add(mesh);
+  const child = game.world.add({ parent: actor, transform: createTransform(), renderable: { mesh } });
+  const grandchild = game.world.add({ parent: child, transform: createTransform(), renderable: { mesh: new THREE.Object3D() } });
+  advance(game, 1);
+  for (let i = 0; i < 144; i++) {
+    game.engine.update(1 / 144);
+    assert.ok(mesh.position.distanceTo(actor.mesh.position) < 1e-6, "child follows the displayed parent");
+    assert.ok(grandchild.renderable.mesh.position.distanceTo(actor.mesh.position) < 1e-6);
+  }
+  assert.ok(child.transform.position.distanceTo(actor.transform.position) < 1e-6, "gameplay transform stays authoritative");
+});
 
 for (const removal of ["entity", "game"]) {
 test(`legacy skinned GLTF releases its clone-owned bone texture on ${removal} removal`, async t => {
@@ -515,6 +545,23 @@ test("voxel avatars inherit player heading once without cancelling limb animatio
     "voxel presentation also respects custom player rotation");
 });
 
+test("voxel avatar gait stays smooth when frames outnumber physics steps", async t => {
+  const game = await headlessGame(t);
+  const kit = createVoxelKit(game, { lighting: false });
+  kit.ground({ size: [40, 2, 40], position: [0, -1, 0] });
+  const npc = game.addCharacter({ position: [0, 1.1, 0] });
+  kit.avatar(npc);
+  advance(game, 1);
+  npc.character.velocity.set(0, 0, -3);
+  const leg = npc.mesh.children.at(-1).children.find(child => child.isGroup);
+  const angles = [];
+  for (let i = 0; i < 144; i++) { game.engine.update(1 / 144); angles.push(leg.rotation.x); }
+  let reversals = 0;
+  for (let i = 2; i < angles.length; i++) if ((angles[i] - angles[i - 1]) * (angles[i - 1] - angles[i - 2]) < 0) reversals++;
+  assert.ok(reversals < 16, `leg swing reversed ${reversals} times in one second`);
+  assert.ok(Math.max(...angles.map(Math.abs)) > .25, "the leg still reaches a full swing");
+});
+
 test("player clearance adapts to fixed step and gravity; exact opt-out and other teleports remain exact", async t => {
   const game=await headlessGame(t,{fixedTimeStep:1/30,gravity:{x:0,y:-30,z:0}});
   const {player}=floorAndPlayer(game);
@@ -747,6 +794,27 @@ test("jumpSpeed zero disables held/repeated jump input without changing grounded
   game.input.setAction("jump", true); advance(game, .2);
   assert.ok(player.body.translation().y > standingY + .5, "enabling a positive jump still launches normally");
   for (const jumpSpeed of [-1, NaN, Infinity]) assert.throws(() => game.addPlayer({ jumpSpeed }), /jumpSpeed/);
+});
+
+test("a jump tap between two low-fps frames still jumps once", async t => {
+  const game = await headlessGame(t);
+  const { player } = floorAndPlayer(game);
+  advance(game, 1);
+  const standingY = player.body.translation().y;
+  const rise = () => {
+    let top = standingY;
+    for (let i = 0; i < 12; i++) { game.engine.update(1 / 12); top = Math.max(top, player.body.translation().y); }
+    advance(game, 2);
+    return top - standingY;
+  };
+  game.input.setAction("jump", true); game.input.setAction("jump", false);
+  assert.ok(rise() > .5, "a tap released before the next frame launches");
+  assert.ok(rise() < .02, "the tap is consumed once");
+  player.player.enabled = false;
+  game.input.setAction("jump", true); game.input.setAction("jump", false);
+  game.engine.update(1 / 60);
+  player.player.enabled = true;
+  assert.ok(rise() < .02, "a tap while disabled is not replayed later");
 });
 
 function pointerFixture(game) {

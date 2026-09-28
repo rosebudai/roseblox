@@ -59,7 +59,7 @@ export function createRpgControls({ canvas, enter, pause, look, turn, select, re
     move(event);
   });
   listen(doc, "pointerup", up);
-  listen(canvas, "pointercancel", reset);
+  listen(canvas, "pointercancel", event => { if (event.pointerId === pointer) reset(); });
   listen(canvas, "lostpointercapture", () => { if (pointer !== null) reset(); });
   listen(canvas, "blur", reset);
   listen(canvas, "contextmenu", event => { if (active) event.preventDefault(); });

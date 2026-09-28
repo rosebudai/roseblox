@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as THREE from 'three';
-import { createRpgWorld, queryMeleeTargets } from '../src/rpg.js';
+import { createRpgWorld, queryMeleeTargets, queryRangedTarget } from '../src/rpg.js';
 
 test('melee finds multiple forward enemies within reach and respects real wall occlusion', async t => {
   const world = await createRpgWorld(); t.after(() => world.dispose());
@@ -14,4 +14,18 @@ test('melee finds multiple forward enemies within reach and respects real wall o
   assert.deepEqual(queryMeleeTargets(origin,forward,candidates,{visible}).map(c=>c.id),['side']);
   wall.remove();
   assert.deepEqual(queryMeleeTargets(origin,new THREE.Vector3(0,0,1),candidates,{visible}).map(c=>c.id),['behind']);
+});
+
+test('ranged soft lock prefers the enemy nearest the crosshair, in range, in front of the shooter and visible', () => {
+  const eye = new THREE.Vector3(0,3,6), from = new THREE.Vector3(0,1.3,0), aim = new THREE.Vector3(0,-.25,-1);
+  const target = (id,x,y,z) => ({ id, position:new THREE.Vector3(x,y,z) });
+  const center = target('center',0,1,-8), side = target('side',2.5,1,-8);
+  const others = [target('wide',9,1,-5), target('between',0,1,3), target('far',0,1,-60)];
+  const pick = (candidates, options) => queryRangedTarget(eye, aim, from, candidates, options)?.id ?? null;
+  assert.equal(pick([...others, side, center]), 'center');
+  assert.equal(pick([...others, side]), 'side');
+  assert.equal(pick([...others, side, center], { visible: c => c !== center }), 'side');
+  assert.equal(pick([side], { cone: .06 }), null, 'a narrow first-person cone needs real aim');
+  assert.equal(pick(others), null, 'out of cone, behind the shooter, or out of range');
+  assert.throws(() => queryRangedTarget(eye, aim, from, [], { range: 0 }), /positive/);
 });

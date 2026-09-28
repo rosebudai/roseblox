@@ -3,12 +3,12 @@ import { createPointerControls } from "./fpsInput.js";
 
 const canvasOwners = new WeakMap();
 export function firstPersonOptions(options = {}) {
-  const { eyeOffset = [0, 0.55, 0], sensitivity = 23e-4, yaw = 0, pitch = 0, hideBody = true, onFire } = options;
+  const { eyeOffset = [0, 0.55, 0], sensitivity = 23e-4, yaw = 0, pitch = 0, hideBody = true, onFire, lockPointer = true } = options;
   if (!Array.isArray(eyeOffset) || eyeOffset.length !== 3 || !eyeOffset.every(Number.isFinite)) throw new Error("First-person eyeOffset must contain three finite numbers.");
   if (!Number.isFinite(sensitivity) || sensitivity <= 0) throw new Error("First-person sensitivity must be positive.");
   if (!Number.isFinite(yaw) || !Number.isFinite(pitch)) throw new Error("First-person yaw/pitch must be finite radians.");
   if (onFire !== void 0 && typeof onFire !== "function") throw new Error("First-person onFire must be a function.");
-  return { eyeOffset: new THREE.Vector3(...eyeOffset), sensitivity, yaw, pitch, hideBody, onFire };
+  return { eyeOffset: new THREE.Vector3(...eyeOffset), sensitivity, yaw, pitch, hideBody, onFire, lockPointer };
 }
 export function createFirstPersonCamera({ entity, camera, controls, canvas, input, world, onDispose, getPosition = () => entity.transform.position }, options) {
   const document2 = canvas.ownerDocument;
@@ -16,7 +16,7 @@ export function createFirstPersonCamera({ entity, camera, controls, canvas, inpu
   const pitchLimit = Math.PI / 2 - 0.05;
   const clampPitch = (value) => Math.max(-pitchLimit, Math.min(pitchLimit, value));
   let yaw = options.yaw, pitch = clampPitch(options.pitch);
-  let enabled = false, playing = false, disposed = false, hidden = null, lastUpdate = performance.now();
+  let enabled = false, playing = false, disposed = false, suspended = false, hidden = null, lastUpdate = performance.now();
   const active = () => !disposed && enabled && playing;
   const syncInput = () => {
     if (entity.player) entity.player.enabled = active();
@@ -33,6 +33,7 @@ export function createFirstPersonCamera({ entity, camera, controls, canvas, inpu
   }
   const mouse = createPointerControls({
     canvas,
+    lockPointer: options.lockPointer !== false,
     doc: document2,
     win: document2.defaultView,
     getState: () => active() ? "playing" : enabled ? "paused" : "ready",
@@ -80,12 +81,21 @@ export function createFirstPersonCamera({ entity, camera, controls, canvas, inpu
     get error() {
       return null;
     },
+    /** Host look input (touch drag, gamepad) in mouse pixels. */
+    look(dx, dy) {
+      if (!active()) return;
+      yaw -= dx * options.sensitivity;
+      pitch = clampPitch(pitch - dy * options.sensitivity);
+      applyCamera();
+    },
     ownsHiddenVisual(owner) {
       return !disposed && owner === entity && hidden?.mesh === owner.mesh;
     },
     start() {
       if (disposed) throw new Error("This first-person camera is disposed. Create a new controller.");
       if (!world.has(entity)) throw new Error("The first-person entity is no longer in this game.");
+      // start() ends a host pause() (dialogue, menus) the same way resume() does; canvas clicks do not.
+      suspended = false;
       // Resume and repeated starts retain aim, held input and pending capture.
       // Only a stopped round starts again from its configured orientation.
       if (enabled) {
@@ -100,8 +110,22 @@ export function createFirstPersonCamera({ entity, camera, controls, canvas, inpu
       controller.update();
       mouse.start();
     },
+    pause() {
+      if (disposed) return;
+      suspended = true;
+      mouse.cancel();
+      // Cancelling fallback look has no capture-loss event, so end the round here.
+      playing = false;
+      canvas.style.cursor = saved.cursor;
+      syncInput();
+    },
+    resume() {
+      if (disposed) return;
+      controller.start();
+    },
     stop() {
       if (disposed) return;
+      suspended = false;
       enabled = playing = false;
       mouse.cancel();
       canvas.style.cursor = saved.cursor;
@@ -140,7 +164,7 @@ export function createFirstPersonCamera({ entity, camera, controls, canvas, inpu
     }
   };
   function resume() {
-    if (enabled && !disposed && !playing) mouse.start();
+    if (enabled && !disposed && !playing && !suspended) mouse.start();
   }
   canvas.addEventListener("click", resume);
   canvasOwners.set(canvas, controller);

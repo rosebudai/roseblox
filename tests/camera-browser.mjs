@@ -1,11 +1,15 @@
 import { chromium } from "@playwright/test";
+import { fileURLToPath } from "node:url";
+import { serveRepository } from "../scripts/rpg-check-server.mjs";
 import assert from "node:assert/strict";
 import { mkdir, writeFile } from "node:fs/promises";
 
-const base = process.argv[2] ?? "http://127.0.0.1:8893";
+// Without a URL argument, serve the repository like the scripts/check-*.mjs checks.
+const server = process.argv[2] ? null : await serveRepository(fileURLToPath(new URL("../", import.meta.url)), 4352);
+const base = process.argv[2] ?? "http://127.0.0.1:4352";
 const output = process.argv[3] ?? "/tmp/roseblox-camera-evidence";
 await mkdir(output, { recursive: true });
-const browser = await chromium.launch({ executablePath: process.env.CHROMIUM_PATH ?? "/usr/local/bin/chromium", headless: true, args: ["--no-sandbox", "--use-gl=angle", "--use-angle=swiftshader", "--enable-unsafe-swiftshader"] });
+const browser = await chromium.launch({ executablePath: process.env.CANARY_CHROMIUM_EXECUTABLE ?? process.env.CHROMIUM_PATH ?? "/usr/local/bin/chromium", headless: true, args: ["--no-sandbox", "--use-gl=angle", "--use-angle=swiftshader", "--enable-unsafe-swiftshader"] });
 const page = await browser.newPage({ viewport: { width: 1000, height: 700 } });
 const errors = [];
 const checks = [];
@@ -13,6 +17,11 @@ page.on("pageerror", error => errors.push(error.message));
 page.on("console", message => { if (message.type() === "error") errors.push(message.text()); });
 const sample = () => page.evaluate(() => window.cameraTest.sample());
 const distance = (a, b) => Math.hypot(...a.map((value, index) => value - b[index]));
+// Poll with a deadline rather than sleeping; software rendering varies in speed.
+const walked = (from, metres) => page.waitForFunction(([from, metres]) => {
+  const p = window.cameraTest.player.transform.position;
+  return Math.hypot(p.x - from[0], p.z - from[2]) > metres;
+}, [from, metres], { timeout: 10000 }).catch(() => {});
 const drag = async (button = "left") => {
   await page.mouse.move(610, 430);
   await page.mouse.down({ button });
@@ -41,6 +50,8 @@ try {
         position: game.camera.position.toArray(),
         target: game.controls.getTarget(new THREE.Vector3(), false).toArray(),
         player: player.transform.position.toArray(),
+        // The camera follows the interpolated pose that is rendered, not the latest physics step.
+        shown: player.mesh.position.toArray(),
         direction: game.camera.getWorldDirection(new THREE.Vector3()).toArray(),
         theta: spherical.theta, phi: spherical.phi, radius: spherical.radius,
         controlsEnabled: game.controls.enabled,
@@ -56,7 +67,7 @@ try {
   const orbited = await sample();
   assert.ok(Math.abs(orbited.theta - initial.theta) > 0.3, "Real left drag must change orbit angle");
   assert.ok(distance(orbited.position, initial.position) > 2, "Real drag must move the rendered camera");
-  assert.ok(distance(orbited.target, orbited.player.map((value, index) => value + (index === 1 ? 0.5 : 0))) < 0.001);
+  assert.ok(distance(orbited.target, orbited.shown.map((value, index) => value + (index === 1 ? 0.5 : 0))) < 0.001);
   checks.push({ name: "real left drag orbits the followed player", status: "pass", initial, orbited });
 
   await page.mouse.wheel(0, -500);
@@ -69,7 +80,7 @@ try {
   await page.locator("canvas").focus();
   const beforeWalk = await sample();
   await page.keyboard.down("KeyW");
-  await page.waitForTimeout(750);
+  await walked(beforeWalk.player, 1.6);
   await page.keyboard.up("KeyW");
   const afterWalk = await sample();
   const movement = [afterWalk.player[0] - beforeWalk.player[0], afterWalk.player[2] - beforeWalk.player[2]];
@@ -79,13 +90,13 @@ try {
   assert.ok(alignment > 0.98, `Walking must follow the orbited camera direction; alignment=${alignment}`);
   assert.ok(Math.abs(afterWalk.theta - beforeWalk.theta) < 0.02, "Following movement must preserve orbit angle");
   assert.ok(Math.abs(afterWalk.radius - beforeWalk.radius) < 0.02, "Following movement must preserve zoom");
-  assert.ok(distance(afterWalk.target, afterWalk.player.map((value, index) => value + (index === 1 ? 0.5 : 0))) < 0.001);
+  assert.ok(distance(afterWalk.target, afterWalk.shown.map((value, index) => value + (index === 1 ? 0.5 : 0))) < 0.001);
   checks.push({ name: "camera-relative walking tracks player and preserves chosen view", status: "pass", alignment, beforeWalk, afterWalk });
 
   await page.evaluate(() => window.cameraTest.game.teleport(window.cameraTest.player, [12, 1.1, -7]));
   await page.waitForTimeout(300);
   const respawned = await sample();
-  assert.ok(distance(respawned.target, respawned.player.map((value, index) => value + (index === 1 ? 0.5 : 0))) < 0.001);
+  assert.ok(distance(respawned.target, respawned.shown.map((value, index) => value + (index === 1 ? 0.5 : 0))) < 0.001);
   assert.ok(Math.abs(respawned.theta - afterWalk.theta) < 0.02);
   assert.ok(Math.abs(respawned.radius - afterWalk.radius) < 0.02);
   checks.push({ name: "respawn retains orbit and zoom while following the new position", status: "pass" });
@@ -93,7 +104,7 @@ try {
   await drag("right");
   const rightDragged = await sample();
   assert.ok(Math.abs(rightDragged.theta - respawned.theta) > 0.3, "Real right drag must orbit rather than pan");
-  assert.ok(distance(rightDragged.target, rightDragged.player.map((value, index) => value + (index === 1 ? 0.5 : 0))) < 0.001);
+  assert.ok(distance(rightDragged.target, rightDragged.shown.map((value, index) => value + (index === 1 ? 0.5 : 0))) < 0.001);
   checks.push({ name: "real right drag orbits without panning the follow target", status: "pass" });
 
   const singleUpdate = await page.evaluate(() => {
@@ -126,11 +137,11 @@ try {
   assert.equal(fixedAfter.controlsEnabled, false);
   assert.ok(distance(fixedAfter.position, fixedBefore.position) < 0.01, "Fixed mode must ignore drag and wheel");
   await page.keyboard.down("KeyW");
-  await page.waitForTimeout(350);
+  await walked(fixedAfter.player, 0.6);
   await page.keyboard.up("KeyW");
   const fixedMoved = await sample();
   assert.ok(distance(fixedMoved.player, fixedAfter.player) > 0.5);
-  assert.ok(distance(fixedMoved.position.map((value, index) => value - fixedMoved.player[index]), [0, 5, 8]) < 0.001);
+  assert.ok(distance(fixedMoved.position.map((value, index) => value - fixedMoved.shown[index]), [0, 5, 8]) < 0.001);
   checks.push({ name: "explicit fixed mode ignores mouse input and retains its moving offset", status: "pass" });
 
   const restoration = await page.evaluate(() => {
@@ -179,4 +190,5 @@ try {
   throw error;
 } finally {
   await browser.close();
+  server?.kill();
 }

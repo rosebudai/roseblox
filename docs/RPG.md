@@ -117,7 +117,7 @@ Use normal generated models, surface textures and environment skyboxes. This API
 does not prescribe a visual style, world layout, asset count or game-code budget.
 
 Explicit `pause()` suspends controls, blocks canvas auto-resume and preserves the view.
-Use `resume()` to release it. `start()` after `stop()` also preserves the camera;
+Use `resume()` or `start()` to release it. `start()` after `stop()` also preserves the camera;
 create a new player to reset the view.
 
 `queryMeleeTargets(origin, forward, candidates, {range:3, arc:Math.PI*2/3, visible})`
@@ -125,3 +125,10 @@ returns nearest-first candidates in a forward swing. Each candidate has a world-
 `position` vector; keep your actor reference alongside it. The optional `visible(candidate)`
 callback applies your world ray query. Damage, enemy eligibility and effects remain
 caller-owned. Use actor facing, not the independently orbiting camera.
+
+`queryRangedTarget(eye, direction, from, candidates, {range:40, cone:.44, visible})`
+returns the visible candidate closest to the aim ray from `eye` (camera position and
+direction), within `range` of and in front of the shooter at `from`, or null.
+
+`addPlayer({view:'first', ...})` builds a first-person player on the same options:
+the body is hidden, the camera sits at eye height, and `onAttack` fires on left click.

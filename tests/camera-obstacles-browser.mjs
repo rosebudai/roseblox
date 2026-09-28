@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import {mkdir,writeFile} from 'node:fs/promises';
 const base=process.argv[2]??'http://127.0.0.1:8896',out=process.argv[3]??'/tmp/roseblox-camera-obstacles';
 await mkdir(out,{recursive:true});
-const browser=await chromium.launch({executablePath:process.env.CHROMIUM_PATH??'/usr/local/bin/chromium',headless:true,args:['--no-sandbox','--use-gl=angle','--use-angle=swiftshader','--enable-unsafe-swiftshader']});
+const browser=await chromium.launch({executablePath:process.env.CANARY_CHROMIUM_EXECUTABLE ?? process.env.CHROMIUM_PATH ?? '/usr/local/bin/chromium',headless:true,args:['--no-sandbox','--use-gl=angle','--use-angle=swiftshader','--enable-unsafe-swiftshader']});
 const page=await browser.newPage({viewport:{width:1000,height:700}}),errors=[],checks=[];
 page.on('pageerror',e=>errors.push(e.message));page.on('console',m=>{if(m.type()==='error')errors.push(m.text())});
 const sample=()=>page.evaluate(()=>window.obstacleTest.sample());

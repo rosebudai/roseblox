@@ -10,7 +10,7 @@ function releaseRetiredLock(doc) {
 // Mouse capture is an enhancement, never a prerequisite for entering the game.
 export function createPointerControls({canvas, getState, enter, pause, look,
   fire, release, resetInput, modeChanged, pendingChanged = () => {},
-  doc = document, win = window, timeoutMs = 700}) {
+  doc = document, win = window, timeoutMs = 700, lockPointer = true}) {
   const owner = {};
   pointerOwners.set(canvas, owner); retiredCanvases.delete(canvas);
   if (!guardedDocuments.has(doc)) {
@@ -39,6 +39,14 @@ export function createPointerControls({canvas, getState, enter, pause, look,
     const wasPending = pending;
     clearPending(); setMode(next);
     if (wasPending) { clearInput(); enter(next); }
+    // Without capture the real cursor can leave the canvas (which pauses), so keep it visible.
+    if (next === 'free' && lockPointer && canvas.style) canvas.style.cursor = 'default';
+  }
+  // A click is a fresh gesture: retry capture when an earlier request was refused
+  // (browsers refuse a new lock for about a second after Escape releases one).
+  function retryLock() {
+    if (!lockPointer || mode !== 'free' || locked() || typeof canvas.requestPointerLock !== 'function') return;
+    try { canvas.requestPointerLock()?.catch?.(() => {}); } catch {}
   }
   function fallback(token) {
     if (token === epoch && pending) activate('free', token);
@@ -58,7 +66,8 @@ export function createPointerControls({canvas, getState, enter, pause, look,
     const token = ++epoch;
     wantsLock = true; pending = true; pendingChanged(true); clearInput();
     if (locked()) { activate('locked', token); return; }
-    if (typeof canvas.requestPointerLock !== 'function') { fallback(token); return; }
+    // Touch play has no mouse to capture; its overlay supplies look input.
+    if (!lockPointer || typeof canvas.requestPointerLock !== 'function') { fallback(token); return; }
     timer = setTimeout(() => fallback(token), timeoutMs);
     try {
       // Keep this call inside the original trusted click gesture. Older engines
@@ -96,11 +105,23 @@ export function createPointerControls({canvas, getState, enter, pause, look,
     }
   });
   listen(canvas, 'mousedown', event => {
-    if (getState() === 'playing' && event.button === 0) fire(event);
+    if (getState() !== 'playing') return;
+    if (event.button === 0) fire(event);
+    retryLock();
   });
   listen(doc, 'mouseup', event => { if (event.button === 0) release(); });
-  listen(canvas, 'mouseleave', () => { if (mode === 'free') requestPause(); });
-  listen(doc, 'pointercancel', () => { clearInput(); });
+  // A tap on the game's own HTML sends compatibility mouse events, including a mouseleave;
+  // only a real mouse leaving pauses, and touch-only play has no mouse to leave.
+  let touchPointer = false;
+  for (const name of ['pointerdown', 'pointermove']) listen(doc, name, event => { touchPointer = event.pointerType === 'touch' || event.pointerType === 'pen'; });
+  listen(canvas, 'mouseleave', event => {
+    if (mode !== 'free' || !lockPointer || touchPointer || event.sourceCapabilities?.firesTouchEvents) return;
+    // The touch overlay sits over the canvas; moving onto it is not leaving the game.
+    if (!event.relatedTarget?.closest?.('[data-roseblox-touch]')) requestPause();
+  });
+  // A cancelled pointer ends only this controller's firing and look tracking, never held
+  // movement from keys, the touch stick or touch buttons.
+  listen(doc, 'pointercancel', () => { lastX = lastY = null; edgeX = 0; release(); });
   listen(canvas, 'contextmenu', event => event.preventDefault());
   listen(doc, 'keydown', event => {
     if (event.code === 'Escape') { event.preventDefault(); requestPause(); }

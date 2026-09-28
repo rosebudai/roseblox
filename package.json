@@ -9,7 +9,10 @@
     "./mechanics": "./src/mechanics.js",
     "./rpg": "./src/rpg.js",
     "./visuals": "./src/visuals.js",
-    "./rpg-template": "./src/rpgTemplate.js"
+    "./rpg-template": "./src/rpgTemplate.js",
+    "./controls": "./src/controls.js",
+    "./package.json": "./package.json",
+    "./src/*": "./src/*"
   },
   "scripts": {
     "build": "node scripts/build.mjs",
@@ -20,7 +23,13 @@
     "test:rpg-combat": "node scripts/check-rpg-combat.mjs",
     "test:rpg-interaction": "node scripts/check-rpg-interaction.mjs",
     "test:rpg-bindings": "node scripts/check-rpg-bindings.mjs",
-    "test:rpg-world": "node scripts/check-rpg-world.mjs"
+    "test:rpg-world": "node scripts/check-rpg-world.mjs",
+    "test:rpg-first-person": "node scripts/check-rpg-first-person.mjs",
+    "test:rpg-ranged": "node scripts/check-rpg-ranged.mjs",
+    "test:rpg-stalker": "node scripts/check-rpg-stalker.mjs",
+    "test:controls": "node scripts/check-controls.mjs",
+    "test:browser-game": "node tests/game-browser.mjs",
+    "test:browser-camera": "node tests/camera-browser.mjs"
   },
   "keywords": [],
   "author": "mike.liu.dev@gmail.com",
