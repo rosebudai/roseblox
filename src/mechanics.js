@@ -13,6 +13,7 @@ function positive(value, name, zero = false) {
   if (!Number.isFinite(value) || (zero ? value < 0 : value <= 0)) throw new Error(`${name} must be ${zero ? "non-negative" : "positive"}.`);
   return value;
 }
+const RUN_AXIS = .9;
 const components = ["x", "y", "z"];
 /** Vectors handed to game code read as `v.x` or `v[0]`, since inputs take `[x, y, z]`. */
 export function readable(v) {
@@ -352,7 +353,8 @@ export async function createMechanics(options = {}) {
         right.crossVectors(forward, up).normalize();
         desired.copy(right).multiplyScalar(move.x).addScaledVector(forward, -move.z);
         if (desired.lengthSq() > 1) desired.normalize();
-        desired.multiplyScalar(e.input.isActionActive("run") ? e.runSpeed : e.speed);
+        // Pushing the analog stick to its edge runs, so touch players can run without a button.
+        desired.multiplyScalar(e.input.isActionActive("run") || e.input.getAxisLength?.() > RUN_AXIS ? e.runSpeed : e.speed);
         const pressed = e.input.consumeActionPress("jump");
         jumpDown = player.active && (jumpDown || e.input.isActionActive("jump") || pressed);
         if (player.active && (e.third?.facing !== "movement" || desired.lengthSq() > 1e-8)) {

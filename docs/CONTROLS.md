@@ -37,7 +37,7 @@ renderer.setAnimationLoop(time => {
   captured after `start()`; if capture is refused, free-mouse look with edge turning
   takes over), Shift runs, Space jumps, wheel zooms in third person.
 - Any touchscreen, including touch laptops, gets on-screen controls automatically while
-  the player is active: drag on the left half for an analog joystick, drag on the right
+  the player is active: drag on the left half for an analog joystick (pushed to its edge it runs), drag on the right
   half to look, and tap Jump. Leave `touch` unset; only a mobile game passes `touch: true`
   so desktop previews show them too (a mouse keeps working normally). Add game actions as
   `touchButtons: [{label:'Attack', onPress, onRelease}]` or `{label:'Run', action:'run'}`.

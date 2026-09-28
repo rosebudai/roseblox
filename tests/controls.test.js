@@ -169,3 +169,13 @@ test("player position, velocity and forward read as .x or [0], like the [x, y, z
   const v = player.velocity; player.setVelocity([v[0], 6, v[2]]);
   assert.equal(player.velocity[1], 6);
 });
+
+test("pushing the analog stick to its edge runs, so touch play can reach run speed", async t => {
+  const { world, player } = await playing(t);
+  player.setAxis(.6, 0); advance(world, .3);
+  const walk = Math.hypot(player.velocity.x, player.velocity.z);
+  player.setAxis(1, 0); advance(world, .3);
+  const run = Math.hypot(player.velocity.x, player.velocity.z);
+  assert.ok(Math.abs(walk - 3) < .1, `a partial push walks proportionally (${walk})`);
+  assert.ok(Math.abs(run - 8) < .1, `a full push runs (${run})`);
+});

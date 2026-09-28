@@ -79,6 +79,8 @@ export async function setupInput(config = {}) {
       const length = Math.hypot(x, z), scale = length > 1 ? 1 / length : 1;
       axisX = x * scale; axisZ = z * scale;
     },
+    /** How far the analog axis is pushed, 0 to 1. */
+    getAxisLength: () => Math.hypot(axisX, axisZ),
     getMousePosition: () => ({ x: mouseX, y: mouseY }),
     isMouseDown: (button = 0) => buttons.has(button),
     getMovementVector: () => ({
