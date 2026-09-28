@@ -134,12 +134,13 @@ for (const native of [false, true]) test(`${native ? "native" : "fallback"} FPS 
   const player = await m.addFpsPlayer(browser);
   player.resume(); assert.equal(player.active, true);
   player.pause(); assert.equal(player.active, false); assert.equal(player.enabled, true);
-  event(browser.canvas, "click"); player.start(); assert.equal(player.active, false, "a dialogue-style suspension outranks clicks and starts");
+  event(browser.canvas, "click"); assert.equal(player.active, false, "a dialogue-style suspension outranks canvas clicks");
   player.resume(); assert.equal(player.active, true);
   player.setMoveSpeed(2, 3); player.setAction("forward", true);
   const from = player.position.z; for (let i = 0; i < 30; i++) m.advance(1 / 60);
   assert.ok(Math.abs(from - player.position.z - 1) < .1, "setMoveSpeed changes walking speed");
   player.stop(); player.start(); assert.equal(player.active, true, "stop clears a suspension");
+  player.pause(); player.start(); assert.equal(player.active, true, "start ends a suspension, like resume");
 });
 
 test("render interpolation remains smooth and teleport is immediate without a physics step", async t => {

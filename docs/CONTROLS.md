@@ -46,8 +46,9 @@ renderer.setAnimationLoop(time => {
   top corners are free. Touches on your own buttons and links go to them, not the controls.
 - Escape, window blur and hidden tabs pause. Show pause UI when `player.active` is false
   and call `player.start()` from a button to resume. On touch, add a visible pause button
-  in a top corner.
-- For dialogue, menus and cutscenes call `player.pause()`, then `player.resume()`.
+  in a top corner that calls `player.pause()`.
+- For dialogue, menus and cutscenes call `player.pause()`, then `player.resume()` (or
+  `player.start()`). Until then a canvas click does not resume play.
 
 Options: `speed` (5), `runSpeed` (8), `jumpSpeed` (6.25, 0 disables jumping and the Jump
 button), `radius` (.35), `facing` ('movement' turns the hero toward travel; 'camera'

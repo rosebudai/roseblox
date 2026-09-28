@@ -81,14 +81,14 @@ export function createThirdPersonCamera({ entry, config, input, castSegment, cas
       if (mmo && mouse.walking) move.z = -1;
       return move;
     },
+    // start() also ends a pause(), so a pause menu can resume with it; canvas clicks cannot.
     start() {
       requireLive();
-      if (suspended) return;
-      enabled = true; controller.updateCamera(); mouse.start();
+      suspended = false; enabled = true; controller.updateCamera(); mouse.start();
     },
     // Cancelling fallback look has no capture-loss event, so end the round here.
     pause() { suspended = true; mouse.cancel(); active = false; canvas.style.cursor = cursor; },
-    resume() { suspended = false; controller.start(); },
+    resume() { controller.start(); },
     stop() { suspended = false; enabled = active = false; mouse.cancel(); canvas.style.cursor = cursor; },
     updateInput(dt) {
       mouse.update(dt);

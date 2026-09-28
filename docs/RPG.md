@@ -117,7 +117,7 @@ Use normal generated models, surface textures and environment skyboxes. This API
 does not prescribe a visual style, world layout, asset count or game-code budget.
 
 Explicit `pause()` suspends controls, blocks canvas auto-resume and preserves the view.
-Use `resume()` to release it. `start()` after `stop()` also preserves the camera;
+Use `resume()` or `start()` to release it. `start()` after `stop()` also preserves the camera;
 create a new player to reset the view.
 
 `queryMeleeTargets(origin, forward, candidates, {range:3, arc:Math.PI*2/3, visible})`

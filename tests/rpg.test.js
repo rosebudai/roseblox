@@ -207,7 +207,7 @@ test("explicit RPG suspension blocks canvas auto-resume and preserves the camera
   const player = await world.addPlayer({ ...b, model: model() }); player.start(); advance(world, 1);
   event(b.win, "keydown", { code: "KeyA" }); advance(world, .3); event(b.win, "keyup", { code: "KeyA" });
   const view = b.camera.quaternion.clone(); player.pause();
-  event(b.canvas, "click", {}); player.start(); assert.equal(player.active, false);
+  event(b.canvas, "click", {}); assert.equal(player.active, false);
   player.resume(); advance(world, .1); assert.equal(player.active, true);
   assert.ok(view.angleTo(b.camera.quaternion) < 1e-6);
   player.stop(); player.start(); advance(world, .1);

@@ -94,8 +94,8 @@ export function createFirstPersonCamera({ entity, camera, controls, canvas, inpu
     start() {
       if (disposed) throw new Error("This first-person camera is disposed. Create a new controller.");
       if (!world.has(entity)) throw new Error("The first-person entity is no longer in this game.");
-      // A host suspension (dialogue, menus) outranks canvas clicks and repeated starts.
-      if (suspended) return;
+      // start() ends a host pause() (dialogue, menus) the same way resume() does; canvas clicks do not.
+      suspended = false;
       // Resume and repeated starts retain aim, held input and pending capture.
       // Only a stopped round starts again from its configured orientation.
       if (enabled) {
@@ -121,7 +121,6 @@ export function createFirstPersonCamera({ entity, camera, controls, canvas, inpu
     },
     resume() {
       if (disposed) return;
-      suspended = false;
       controller.start();
     },
     stop() {

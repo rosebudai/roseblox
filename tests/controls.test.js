@@ -317,3 +317,14 @@ test("a touch player can be removed after world.dispose(), and the reverse", asy
   const b = await touchPlayer();
   b.player.remove(); b.world.dispose();
 });
+
+for (const view of ["third", "first"]) test(`${view}-person start() resumes after pause(), so a pause menu can use either`, async t => {
+  const world = await fixture(t), browser = surface(true);
+  const player = await world.addPlayer({ ...browser, model: hero(), view });
+  player.start(); advance(world, .1);
+  player.pause(); advance(world, .1);
+  browser.canvas.dispatchEvent(new Event("click"));
+  assert.equal(player.active, false, "a canvas click does not end pause()");
+  player.start(); advance(world, .1);
+  assert.equal(player.active, true);
+});
