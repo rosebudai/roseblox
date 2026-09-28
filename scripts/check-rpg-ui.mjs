@@ -97,6 +97,35 @@ try {
   await audio.getByRole('button',{name:'Resume',exact:true}).click(); await audio.waitForFunction(()=>window.fixtureState.phase==='playing');
   assert.ok(Math.abs(await audio.evaluate(()=>window.fixture.assets.get('music').currentTime)-1.5)<.2,'resume keeps the audio position');
   assert.deepEqual(audioErrors,[]); await audio.close(); console.log(JSON.stringify({resume_keeps_audio:true}));
+  // Content no play can complete, or that would only fail mid-game, is rejected while loading.
+  const invalid=await browser.newPage();
+  await invalid.goto('http://127.0.0.1:4335/examples/rpg-template/');
+  await invalid.waitForFunction(()=>window.fixtureState?.phase==='ready');
+  const rejected=await invalid.evaluate(async()=>{
+    const {createRpgGame}=await import('/build/rpgTemplate.js');
+    const wolf={id:'wolf',model:'person',enemy:true}, elder={id:'elder',model:'person'}, cases={
+      defeatCount:{characters:[wolf],quests:[{id:'hunt',objectives:[{type:'defeat',target:'wolf',count:3}]}]},
+      unkillable:{characters:[{id:'wolf',model:'person',enemy:'stalker'}],quests:[{id:'hunt',objectives:[{type:'defeat',target:'wolf'}]}]},
+      talkEnemy:{characters:[wolf],quests:[{id:'parley',objectives:[{type:'talk',target:'wolf'}]}]},
+      enemyGiver:{characters:[wolf,elder],quests:[{id:'errand',giver:'wolf',objectives:[{type:'talk',target:'elder'}]}]},
+      drops:{characters:[{...wolf,drops:{pelt:.5}}]},
+      heal:{abilities:[{name:'Mend',kind:'heal'}]},
+    }, messages={};
+    for(const [name,content] of Object.entries(cases)){
+      const container=document.createElement('div');document.body.append(container);
+      try{await createRpgGame({container,createUI:()=>({update(){}}),assets:{},player:{model:'person'},...content});messages[name]=null;}
+      catch(error){messages[name]=error.message;}
+      container.remove();
+    }
+    return messages;
+  });
+  assert.match(rejected.defeatCount,/defeat wolf needs count 1/);
+  assert.match(rejected.unkillable,/must be an enemy that can die/);
+  assert.match(rejected.talkEnemy,/talk target wolf must be a character or object/);
+  assert.match(rejected.enemyGiver,/giver wolf must be a character the player can talk to/);
+  assert.match(rejected.drops,/drops of pelt must be a positive integer/);
+  assert.match(rejected.heal,/Mend heal must be a positive number/);
+  await invalid.close(); console.log(JSON.stringify({invalid_content_rejected:Object.keys(rejected)}));
   const recovery=await browser.newPage(), recoveryErrors=[];
   recovery.on('pageerror',e=>recoveryErrors.push(e.message));
   let fail=true;

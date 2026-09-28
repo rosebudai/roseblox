@@ -46,6 +46,7 @@ export async function createRpgGame(config) {
   for (const ability of kit) {
     if (!["melee", "ranged", "heal"].includes(kindOf(ability))) throw new Error(`Ability ${ability.name} kind must be melee, ranged or heal.`);
     if (ability.ammo && !(Number.isInteger(ability.ammo.clip) && ability.ammo.clip > 0)) throw new Error(`Ability ${ability.name} ammo.clip must be a positive integer.`);
+    if (kindOf(ability) === "heal" && !(Number.isFinite(ability.heal) && ability.heal > 0)) throw new Error(`Ability ${ability.name} heal must be a positive number.`);
   }
   const ammoDefaults = () => new Map(kit.flatMap((ability, slot) => kindOf(ability) === "ranged" && ability.ammo
     ? [[slot, { clip: ability.ammo.clip, reserve: ability.ammo.reserve ?? Infinity, reloadUntil: 0 }]] : []));
@@ -135,6 +136,31 @@ export async function createRpgGame(config) {
     previousFocusKey = focusKey;
   }
   const progress = createRpgProgress(config.quests, { changed: () => { refresh(); config.onProgress?.(api); } });
+  /** Rejects content that would only fail mid-game, or an objective no play can complete. */
+  function validateContent() {
+    const targets = new Map(), count = value => Number.isInteger(value) && value > 0;
+    for (const def of [...(config.characters ?? []), ...(config.objects ?? [])]) {
+      if (!def.id || targets.has(def.id)) throw new Error("Target IDs must be unique.");
+      targets.set(def.id, def);
+      if (def.item !== undefined && !count(def.count ?? 1)) throw new Error(`${def.id} count must be a positive integer.`);
+      for (const [item, n] of Object.entries(def.drops ?? {})) if (!count(n)) throw new Error(`${def.id} drops of ${item} must be a positive integer.`);
+    }
+    // Enemies, hiding spots and opted-out targets never reach the talk/deliver path of interact().
+    const talkable = def => def && !def.enemy && !def.hide && def.interactable !== false;
+    for (const q of progress.quests) {
+      if (q.giver && !targets.has(q.giver)) throw new Error(`Quest ${q.id} has unknown giver ${q.giver}.`);
+      if (q.giver && !talkable(targets.get(q.giver))) throw new Error(`Quest ${q.id} giver ${q.giver} must be a character the player can talk to, not an enemy or hiding spot.`);
+      for (const [item, n] of Object.entries(q.reward?.items ?? {})) if (!count(n)) throw new Error(`Quest ${q.id} reward of ${item} must be a positive integer.`);
+      for (const o of q.objectives) {
+        const target = targets.get(o.target);
+        if (["talk", "defeat", "deliver"].includes(o.type) && !target) throw new Error(`Unknown objective target ${o.target}.`);
+        if (["talk", "deliver"].includes(o.type) && !talkable(target)) throw new Error(`Quest ${q.id} ${o.type} target ${o.target} must be a character or object the player can interact with, not an enemy or hiding spot.`);
+        if (o.type === "defeat" && !(target.enemy && Number.isFinite(maxHealthOf(target)))) throw new Error(`Quest ${q.id} defeat target ${o.target} must be an enemy that can die (give a stalker health).`);
+        if (o.type === "defeat" && (o.count ?? 1) !== 1) throw new Error(`Quest ${q.id} defeat ${o.target} needs count 1: each enemy is defeated once, so add one objective per enemy.`);
+        if (o.type === "visit" && !(config.zones ?? []).some(z => z.id === o.target)) throw new Error(`Unknown visit zone ${o.target}.`);
+      }
+    }
+  }
   function play() {
     if (disposed || loading || loadError) return;
     for (const reason of ["ready", "pause", "focus"]) session.release(reason);
@@ -351,6 +377,7 @@ export async function createRpgGame(config) {
     // UI key presses must not become movement/ability input. Escape still closes or pauses.
     listen(ui, "keydown", event => { if (event.code !== "Escape") event.stopPropagation(); });
     refresh();
+    validateContent();
     const lighting = resolveRpgLighting(config.visuals);
     renderer = new THREE.WebGLRenderer({ antialias: true }); renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
     renderer.shadowMap.enabled = config.visuals?.shadows !== false; renderer.shadowMap.type = THREE.PCFSoftShadowMap;
@@ -400,7 +427,6 @@ export async function createRpgGame(config) {
       obj.position.fromArray(equipment.position ?? [0, 0, 0]); player.visual.add(obj);
     }
     for (const def of [...(config.characters ?? []), ...(config.objects ?? [])]) {
-      if (!def.id || actors.has(def.id)) throw new Error("Target IDs must be unique.");
       const home = new THREE.Vector3(...(def.feet ?? [0, 0, 0])); let body, visual, npc;
       if (def.enemy || def.patrol) {
         npc = world.addNpc({ model: model(def.model), feet: home.toArray(), height: def.height ?? 1.8, radius: def.radius ?? .35, modelYaw: def.modelYaw ?? 0, data: { rpgId: def.id } });
@@ -413,14 +439,7 @@ export async function createRpgGame(config) {
       const interactable = def.interactable ?? !!(interactionIds.has(def.id) || def.item || def.dialogue || def.onInteract || def.hide);
       actors.set(def.id, { def, body, root: visual, npc, home, position: () => npc ? npc.position : home.clone(), health: maxHealthOf(def), dead: false, interactable, nextAttack: 0, alertUntil: 0, waypoint: 0, ...(def.enemy === "stalker" && { stalk: calm(), lastKnown: null }) });
     }
-    for (const q of progress.quests) {
-      if (q.giver && !actors.has(q.giver)) throw new Error(`Quest ${q.id} has unknown giver ${q.giver}.`);
-      for (const o of q.objectives) {
-        if (["talk", "defeat", "deliver"].includes(o.type) && !actors.has(o.target)) throw new Error(`Unknown objective target ${o.target}.`);
-        if (o.type === "visit" && !(config.zones ?? []).some(z => z.id === o.target)) throw new Error(`Unknown visit zone ${o.target}.`);
-      }
-      if (q.autoStart) progress.accept(q.id);
-    }
+    for (const q of progress.quests) if (q.autoStart) progress.accept(q.id);
     session = createRpgSession({ suspend: () => { player.pause(); setSneak(false); }, resume: () => player.resume(), changed: refresh });
     function resize() { camera.aspect = root.clientWidth / Math.max(1, root.clientHeight); camera.updateProjectionMatrix(); renderer.setSize(root.clientWidth, root.clientHeight); }
     listen(window, "resize", resize); resize();
