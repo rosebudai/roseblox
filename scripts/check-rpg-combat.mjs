@@ -85,5 +85,19 @@ try{
  const frames=await animated.evaluate(async()=>{const start=window.fixture.renderer?.info.render.frame;for(let i=0;i<10;i++)await new Promise(requestAnimationFrame);return start===undefined?10:window.fixture.renderer.info.render.frame-start;});
  assert.ok(frames>=5,`frames kept rendering (${frames})`);assert.deepEqual(animatedErrors,[]);
  result.checks.push('animated enemy defeat keeps rendering');await animated.close();
+ // At 120 Hz half the rendered frames have no physics step; a walking rig must keep its clip playing.
+ const fast=await browser.newPage({viewport:{width:800,height:600}}), fastErrors=[];fast.on('pageerror',e=>fastErrors.push(e.message));
+ await fast.addInitScript(()=>{
+   let now=performance.now();
+   window.requestAnimationFrame=callback=>setTimeout(()=>callback(now+=1000/120),0);
+   window.cancelAnimationFrame=clearTimeout;
+ });
+ await fast.goto('http://127.0.0.1:4336/examples/rpg-template/?animated=1&model=./fixture-animated.gltf');
+ await fast.getByRole('button',{name:'Play',exact:true}).click();await fast.waitForFunction(()=>window.fixture.player.grounded);
+ // The fixture's Walk clip stretches the body from 1 to 3 over a second; Idle holds it at 1.
+ const stride=scale=>fast.waitForFunction(scale=>window.fixture.player.visual.getObjectByName('Body').scale.x>scale,scale,{timeout:10000,polling:20});
+ await fast.keyboard.down('KeyW');await stride(1.8);await fast.keyboard.up('KeyW');
+ await fast.waitForFunction(()=>Math.abs(window.fixture.player.visual.getObjectByName('Body').scale.x-1)<.01,null,{timeout:10000});
+ assert.deepEqual(fastErrors,[]);result.checks.push('120 Hz walk clip keeps playing');await fast.close();
  await writeFile(output+'/checks.json',JSON.stringify(result,null,2));console.log(JSON.stringify(result));
 }finally{await browser?.close();server.kill();}

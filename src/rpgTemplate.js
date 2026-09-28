@@ -388,7 +388,7 @@ export async function createRpgGame(config) {
       if (!clips.length || !def.animations) return;
       const mixer = new THREE.AnimationMixer(actor.visual ?? actor.root), actions = {};
       for (const [state, name] of Object.entries(def.animations)) { const clip = clips.find(c => c.name === name); if (clip) actions[state] = mixer.clipAction(clip); }
-      mixers.push({ mixer, actions, actor, gone, previous: actor.position.clone(), current: null });
+      mixers.push({ mixer, actions, actor, gone, current: null });
     }
     animate(player, p);
     for (const equipment of p.equipment ?? []) {
@@ -534,9 +534,17 @@ export async function createRpgGame(config) {
           const item = mixers[i];
           // A defeated or collected actor has no body left to read a position from.
           if (item.gone()) { item.mixer.stopAllAction(); mixers.splice(i, 1); continue; }
-          const pos = item.actor.position, speed = pos.distanceTo(item.previous) / Math.max(dt, .001); item.previous.copy(pos);
-          const next = !item.actor.grounded ? "jump" : speed > .1 ? "walk" : "idle";
-          if (next !== item.current && item.actions[next]) { item.actions[item.current]?.fadeOut(.15); item.actions[next].reset().fadeIn(.15).play(); item.current = next; } item.mixer.update(dt);
+          // Body velocity, not rendered-frame displacement: above 60 Hz some frames have no physics step.
+          // The gap between the walk and idle thresholds keeps a slowing actor from flickering.
+          const velocity = item.actor.body.velocity, speed = Math.hypot(velocity.x, velocity.z);
+          const next = !item.actor.grounded ? "jump" : speed > (item.current === "walk" ? .1 : .3) ? "walk" : "idle";
+          if (next !== item.current && item.actions[next]) {
+            const action = item.actions[next]; item.actions[item.current]?.fadeOut(.15);
+            // A clip still fading out continues from where it is instead of restarting.
+            if (!action.isRunning()) action.reset();
+            action.fadeIn(.15).play(); item.current = next;
+          }
+          item.mixer.update(dt);
         }
         if (noticeUntil && time > noticeUntil) { noticeText = ""; noticeUntil = 0; }
         for (let i = effects.length - 1; i >= 0; i--) {
