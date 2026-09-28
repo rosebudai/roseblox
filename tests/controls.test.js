@@ -304,3 +304,16 @@ test("touch-only play never pauses on mouseleave", async t => {
   assert.equal(player.active, true);
   player.remove();
 });
+
+test("a touch player can be removed after world.dispose(), and the reverse", async () => {
+  const touchPlayer = async () => {
+    const world = await createWorld({ interpolate: false }), browser = surface(true);
+    const node = () => ({ style: {}, dataset: {}, append() {}, addEventListener() {}, remove() {}, getBoundingClientRect: () => ({ left: 0, top: 0 }) });
+    browser.doc.createElement = node; browser.doc.body = node();
+    return { world, player: await world.addPlayer({ ...browser, model: riggedHero(), touch: true }) };
+  };
+  const a = await touchPlayer();
+  a.world.dispose(); a.player.remove(); a.player.remove();
+  const b = await touchPlayer();
+  b.player.remove(); b.world.dispose();
+});

@@ -35,7 +35,7 @@ export function createTouchControls({ canvas, player, jump = true, buttons = [],
     borderRadius: "50%", background: "rgba(255,255,255,.55)" }, ring);
   const column = el({ position: "absolute", right: "20px", bottom: "24px", display: "flex", flexDirection: "column-reverse", alignItems: "center", gap: "14px", pointerEvents: "none" }, root);
 
-  let move = null, look = null, shown = false, bodyTouchAction = null;
+  let move = null, look = null, shown = false, bodyTouchAction = null, disposed = false;
   const endMove = () => { move = null; ring.style.display = "none"; knob.style.transform = ""; player.setAxis(0, 0); };
   const endLook = () => { look = null; };
   const interactive = target => target?.closest?.("button, a, input, select, textarea, label, [role=button], [contenteditable=true], [data-roseblox-touch=button]");
@@ -124,7 +124,10 @@ export function createTouchControls({ canvas, player, jump = true, buttons = [],
       const rect = canvas.getBoundingClientRect();
       Object.assign(root.style, { left: `${rect.left}px`, top: `${rect.top}px`, width: `${rect.width}px`, height: `${rect.height}px` });
     },
+    // Safe to call twice, as world.dispose() and player.remove() both do in either order.
     dispose() {
+      if (disposed) return;
+      disposed = true;
       releaseAll();
       for (const [type, handler] of listeners) doc.removeEventListener(type, handler, { capture: true });
       if (shown) doc.body.style.touchAction = bodyTouchAction ?? "";
