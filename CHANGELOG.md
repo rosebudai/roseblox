@@ -25,6 +25,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Character controls: `player.start()` resumes after `player.pause()`, like `resume()`; canvas clicks still do not.
+- Character controls: `playAnimation(name, {loop: true})` holds until the new `stopAnimation()` instead of yielding to locomotion on the next frame.
 - **Breaking:** peer dependencies are narrowed from `*` to the tested versions: `three` 0.184.x or 0.185.x, `@dimforge/rapier3d-compat` 0.20.x, `camera-controls` 3.1.x and `miniplex` 2.0.x. The 0.0.x README pinned three 0.163.0, Rapier 0.17.3 and camera-controls 2.10.1; upgrade those imports together.
 - **Breaking:** transform sync now runs once per rendered frame, after every fixed-step system. A default (fixed-phase) system that wrote an entity root's `mesh.position`/`mesh.rotation` after transform sync (priority above 65) is now overwritten; register it with `phase: "frame"` and a priority above 65, or move the entity through `transform.position` and `transform.rotation`/`transform.quaternion`. Root-mesh edits made before transform sync were already overwritten in 0.0.x, which is why the getting-started example now rotates its cubes through `transform.rotation`.
 - The package now has an `exports` map. `package.json` and deep `roseblox-game-engine/src/*` imports remain available alongside the named entry points.
@@ -52,6 +54,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `addPlayer` keeps a jump tap that is pressed and released between two frames.
 - `createGame` disposes its initialized engine when later setup fails.
 - A GLTF renderable whose asset was not preloaded shows a red wireframe placeholder with a console warning again, instead of stopping the game.
+- Character controls: removing an animated NPC through its body handle (for example `castRay(...).body.remove()`) no longer crashes every frame.
+- Character controls: a player riding a descending `moveTo` platform stays grounded and can jump.
+- Character controls: an unrelated `pointercancel`, or `teleport()`, no longer drops held keys, joystick or touch buttons.
+- Character controls: tapping the game's own HTML buttons no longer pauses touch play through a synthetic `mouseleave`.
+- Character controls: `player.remove()` after `world.dispose()` no longer throws for touch players.
+- Character controls: cloned vectors and `castRay` `point`/`normal` read as `v[0]`, `v[1]`, `v[2]` like other engine vectors.
+- RPG template: walk/idle clips follow body velocity, so they no longer flicker or restart above 60 Hz.
+- RPG template: resuming no longer reloads audio, so music keeps playing.
+- RPG template: a round no longer pauses while mouse capture is still being granted.
+- RPG template: loading rejects unattainable defeat/talk/deliver objectives, bad item/drop/reward counts and heal abilities without an amount.
+- RPG template: a provoked chase and respawn fire `onAlert`, chases ride out a brief loss of sight, and respawn clears enemy alert state.
+- RPG template: a hidden player can no longer jump, and `dispose()`/`restart()` during loading stops the superseded setup.
+- RPG browser checks use unique ports and fail if their server can't bind; `sync-rpg-template.mjs` takes the version from `RPG_TEMPLATE_VERSION`.
 
 These changes are under evaluation. Engine tests are not model-generation success measurements.
 
