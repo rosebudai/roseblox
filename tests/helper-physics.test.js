@@ -23,6 +23,7 @@ async function headlessGame(t, options = {}) {
     getBoundingClientRect() { return {left:0,top:0,width:800,height:600}; }
   }
   const active = new Set();
+  const pressed = new Set();
   const registerCore = GameSystems.prototype._registerCoreSystems;
   t.mock.method(GameSystems.prototype, "_registerCoreSystems", function () {
     registerCore.call(this);
@@ -36,8 +37,9 @@ async function headlessGame(t, options = {}) {
     this.resources.get("input").factory = () => ({
       getMovementVector:()=>({x:Number(active.has("right"))-Number(active.has("left")),z:Number(active.has("backward"))-Number(active.has("forward"))}),
       isActionActive:action=>active.has(action),
-      setAction(action,enabled) { if(enabled)active.add(action);else active.delete(action); },
-      reset:()=>active.clear(),
+      consumeActionPress:action=>pressed.delete(action),
+      setAction(action,enabled) { if(enabled){if(!active.has(action))pressed.add(action);active.add(action);}else active.delete(action); },
+      reset:()=>{active.clear();pressed.clear();},
     });
   });
   const game = await createGame({autoStart:false,...options});
@@ -780,6 +782,27 @@ test("jumpSpeed zero disables held/repeated jump input without changing grounded
   game.input.setAction("jump", true); advance(game, .2);
   assert.ok(player.body.translation().y > standingY + .5, "enabling a positive jump still launches normally");
   for (const jumpSpeed of [-1, NaN, Infinity]) assert.throws(() => game.addPlayer({ jumpSpeed }), /jumpSpeed/);
+});
+
+test("a jump tap between two low-fps frames still jumps once", async t => {
+  const game = await headlessGame(t);
+  const { player } = floorAndPlayer(game);
+  advance(game, 1);
+  const standingY = player.body.translation().y;
+  const rise = () => {
+    let top = standingY;
+    for (let i = 0; i < 12; i++) { game.engine.update(1 / 12); top = Math.max(top, player.body.translation().y); }
+    advance(game, 2);
+    return top - standingY;
+  };
+  game.input.setAction("jump", true); game.input.setAction("jump", false);
+  assert.ok(rise() > .5, "a tap released before the next frame launches");
+  assert.ok(rise() < .02, "the tap is consumed once");
+  player.player.enabled = false;
+  game.input.setAction("jump", true); game.input.setAction("jump", false);
+  game.engine.update(1 / 60);
+  player.player.enabled = true;
+  assert.ok(rise() < .02, "a tap while disabled is not replayed later");
 });
 
 function pointerFixture(game) {

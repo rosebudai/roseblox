@@ -49,6 +49,8 @@ export async function createGame(options = {}) {
       if (!hasCameraHeading) playerForward.set(0, 0, -1);
       playerForward.normalize();
       playerRight.crossVectors(playerForward, camera.camera.up).normalize();
+      // A tap can press and release between two steps at low frame rates.
+      const jumpPressed = input.consumeActionPress?.("jump") ?? false;
       for (const player of players) {
         if (!engine.world.has(player) || !player.player || !player.physicsBody?.controller) {
           players.delete(player);
@@ -73,7 +75,7 @@ export async function createGame(options = {}) {
           playerRotation.setFromAxisAngle(worldUp, Math.atan2(-heading.x, -heading.z));
           body.setNextKinematicRotation(playerRotation);
         }
-        const jumpDown = control.enabled && control.jumpSpeed > 0 && input.isActionActive("jump");
+        const jumpDown = control.enabled && control.jumpSpeed > 0 && (jumpPressed || input.isActionActive("jump"));
         const speed = control.enabled && input.isActionActive("run") ? control.runSpeed : control.speed;
         direction.multiplyScalar(speed);
         moveCharacter({ physics, body, collider, controller, state: control, velocity: direction, jumpDown, jumpSpeed: control.jumpSpeed }, dt);
