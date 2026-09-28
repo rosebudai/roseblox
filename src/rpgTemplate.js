@@ -136,7 +136,9 @@ export async function createRpgGame(config) {
   function play() {
     if (disposed || loading || loadError) return;
     for (const reason of ["ready", "pause", "focus"]) session.release(reason);
-    for (const value of assets.values()) if (value instanceof HTMLAudioElement) value.load();
+    // Prime audio the browser has not started loading (iOS waits for a gesture); load() on
+    // anything further along would restart music that is already playing.
+    for (const value of assets.values()) if (value instanceof HTMLAudioElement && value.readyState === HTMLMediaElement.HAVE_NOTHING && value.networkState !== HTMLMediaElement.NETWORK_LOADING) value.load();
   }
   function closeDialogue() {
     dialogueSerial++; dialogue = null; session.release("dialogue"); refresh();

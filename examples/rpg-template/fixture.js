@@ -5,10 +5,16 @@ const interaction = new URLSearchParams(location.search).has('interaction');
 const melee = new URLSearchParams(location.search).has('melee');
 const q = new URLSearchParams(location.search), ranged = q.has('ranged'), gunner = q.has('gunner'), stalker = q.has('stalker');
 const combat = interaction || melee || ranged || gunner || stalker || q.has('combat');
+// Three seconds of 8 kHz silence, enough to seek within without a network asset.
+const silence = () => { const b = new DataView(new ArrayBuffer(44 + 24000)), text = (at, s) => [...s].forEach((c, i) => b.setUint8(at + i, c.charCodeAt(0)));
+ text(0, 'RIFF'); b.setUint32(4, 36 + 24000, true); text(8, 'WAVEfmt '); b.setUint32(16, 16, true); b.setUint16(20, 1, true); b.setUint16(22, 1, true);
+ b.setUint32(24, 8000, true); b.setUint32(28, 8000, true); b.setUint16(32, 1, true); b.setUint16(34, 8, true); text(36, 'data'); b.setUint32(40, 24000, true);
+ for (let i = 0; i < 24000; i++) b.setUint8(44 + i, 128);
+ return URL.createObjectURL(new Blob([b.buffer], { type: 'audio/wav' })); };
 window.fixture = await createRpgGame({
  createUI, onReady(game){window.fixture=game;},
  title:combat?'Ember watch':'Garden walk', description:'Engineering fixture: approach the guide, F, accept, gather the token, then return.',
- assets:{person:{type:'model',url:new URLSearchParams(location.search).get('model')||'./fixture.gltf'}}, player:{model:'person',feet:[0,.1,0],view:new URLSearchParams(location.search).get('view')||undefined,...(q.has('animated')&&{animations:{idle:'Idle',walk:'Walk'}})},
+ assets:{person:{type:'model',url:new URLSearchParams(location.search).get('model')||'./fixture.gltf'},...(q.has('audio')&&{music:{type:'audio',url:silence()}})}, player:{model:'person',feet:[0,.1,0],view:new URLSearchParams(location.search).get('view')||undefined,...(q.has('animated')&&{animations:{idle:'Idle',walk:'Walk'}})},
  visuals:combat?{background:'#42201d',ambient:1,sunColor:'#ff9977'}:{background:'#87ceeb',ambient:2},
  characters:[{id:'guide',name:'Guide',model:'person',feet:[-1.6,0,-1],dialogue:{text:'Retrieve the token and return.',choices:[{label:'Test error cleanup',action(){throw new Error('Intentional fixture choice failure')}}]}}, ...(combat?[{id:'enemy',name:'Sentinel',model:'person',feet:[0,0,ranged?-8:-2.4],enemy:true,health:40,aggroRange:0}]:[]).filter(def=>!(gunner||stalker)||def.id!=='enemy'), ...(melee?[
   {id:'side',name:'Side enemy',feet:[1.2,0,-2.1]}, {id:'blocked',name:'Behind wall',feet:[-1.2,0,-2.2]},

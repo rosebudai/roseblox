@@ -86,6 +86,17 @@ try {
   await combat.screenshot({path:`${output}/ability-health-contract.png`});
   assert.deepEqual(combatErrors,[]); await combat.close();
   console.log(JSON.stringify({ability_click_matches_key:true,target_health_normalized:true,controls_legend:true}));
+  // Resuming must not reload audio, which would restart any music the game is playing.
+  const audio=await browser.newPage(), audioErrors=[];
+  audio.on('pageerror',e=>audioErrors.push(e.message));
+  await audio.goto('http://127.0.0.1:4335/examples/rpg-template/?audio=1');
+  await audio.waitForFunction(()=>window.fixtureState?.phase==='ready'&&window.fixture.assets.get('music').readyState>=1);
+  await audio.getByRole('button',{name:'Play',exact:true}).click();
+  await audio.evaluate(()=>{window.fixture.assets.get('music').currentTime=1.5;});
+  await audio.keyboard.press('Escape'); await audio.waitForFunction(()=>window.fixtureState.phase==='paused');
+  await audio.getByRole('button',{name:'Resume',exact:true}).click(); await audio.waitForFunction(()=>window.fixtureState.phase==='playing');
+  assert.ok(Math.abs(await audio.evaluate(()=>window.fixture.assets.get('music').currentTime)-1.5)<.2,'resume keeps the audio position');
+  assert.deepEqual(audioErrors,[]); await audio.close(); console.log(JSON.stringify({resume_keeps_audio:true}));
   const recovery=await browser.newPage(), recoveryErrors=[];
   recovery.on('pageerror',e=>recoveryErrors.push(e.message));
   let fail=true;
