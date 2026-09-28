@@ -1,5 +1,5 @@
 import * as THREE from "three";
-import { createMechanics } from "./mechanics.js";
+import { createMechanics, readable } from "./mechanics.js";
 import { RPG_MOVEMENT_DEFAULTS } from "./rpgProfile.js";
 import { createTouchControls, finePointer, touchAvailable } from "./touchControls.js";
 export { queryMeleeTargets, queryRangedTarget } from "./rpgCombat.js";
@@ -48,9 +48,9 @@ export async function createRpgWorld({ playerDefaults = {}, ...options } = {}) {
     root.add(visual); body.bindObject(root);
     return {
       body, root, visual,
-      get position() { return body.position.add(new THREE.Vector3(0, -height / 2, 0)); },
+      get position() { return readable(body.position.add(new THREE.Vector3(0, -height / 2, 0))); },
       /** Horizontal facing, independent of each controller's body axis. */
-      get forward() { const v = axis.clone().applyQuaternion(body.quaternion); v.y = 0; return v.lengthSq() ? v.normalize() : new THREE.Vector3(0, 0, -1); },
+      get forward() { const v = axis.clone().applyQuaternion(body.quaternion); v.y = 0; return readable(v.lengthSq() ? v.normalize() : new THREE.Vector3(0, 0, -1)); },
       get grounded() { return body.grounded; },
       jump: () => body.jump(),
       teleport: feet => body.teleport(feetVector(feet).add(new THREE.Vector3(0, height / 2, 0))),

@@ -58,7 +58,8 @@ Player: `start()`, `stop()`, `pause()`, `resume()`, `jump()`, `teleport([x,y,z])
 `setMoveSpeed(walk, run)`, `setVelocity([x,y,z])`, `setAction(name, down)` for
 `forward/backward/left/right/run/jump`, `setAxis(x, z)`, `look(dx, dy)`, `remove()`. Read
 `active`, `locked`, `grounded`, `touch`, `position` (feet), `forward`, `velocity`,
-`jumpHeld`, `jumpPressed`, and `body` (its collider, for queries).
+`jumpHeld`, `jumpPressed`, and `body` (its collider, for queries). `position`, `velocity`
+and `forward` are fresh `THREE.Vector3`s that also read as `v[0]`, `v[1]`, `v[2]`.
 
 ## Extending movement
 

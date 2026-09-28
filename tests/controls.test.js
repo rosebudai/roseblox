@@ -158,3 +158,14 @@ for (const mover of ["teleport", "moveTo"]) test(`a kinematic platform moved wit
   assert.ok(Math.abs(moved.y - .5) < .15, `rides up with the platform (${moved.y})`);
   assert.equal(player.grounded, true);
 });
+
+test("player position, velocity and forward read as .x or [0], like the [x, y, z] inputs", async t => {
+  const { world, player } = await playing(t);
+  player.setAxis(1, 0); advance(world, .2);
+  for (const name of ["position", "velocity", "forward"]) {
+    const v = player[name];
+    assert.deepEqual([v[0], v[1], v[2]], [v.x, v.y, v.z], name);
+  }
+  const v = player.velocity; player.setVelocity([v[0], 6, v[2]]);
+  assert.equal(player.velocity[1], 6);
+});

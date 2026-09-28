@@ -13,6 +13,12 @@ function positive(value, name, zero = false) {
   if (!Number.isFinite(value) || (zero ? value < 0 : value <= 0)) throw new Error(`${name} must be ${zero ? "non-negative" : "positive"}.`);
   return value;
 }
+const components = ["x", "y", "z"];
+/** Vectors handed to game code read as `v.x` or `v[0]`, since inputs take `[x, y, z]`. */
+export function readable(v) {
+  for (let i = 0; i < 3; i++) Object.defineProperty(v, i, { get() { return this[components[i]]; }, set(value) { this[components[i]] = value; }, configurable: true });
+  return v;
+}
 function vector(value, fallback = [0, 0, 0]) {
   value ??= fallback;
   if (Array.isArray(value) && value.length !== 3) throw new Error("Expected a three-component vector.");
@@ -129,7 +135,7 @@ export async function createMechanics(options = {}) {
     const entry = { body, collider, position, quaternion, previousPosition: position.clone(), previousRotation: quaternion.clone(), renderPosition: position.clone(), renderRotation: quaternion.clone(), bindings: new Set(), controller: null, state: null, fps: null, input: null };
     const handle = {
       id: nextId++, data: config.data ?? {},
-      get position() { return requireEntry(handle).position.clone(); },
+      get position() { return readable(requireEntry(handle).position.clone()); },
       get quaternion() { return requireEntry(handle).quaternion.clone(); },
       get grounded() { const e = requireEntry(handle); return e.vehicle?.grounded ?? e.state?.grounded ?? false; },
       get removed() { return !entries.has(handle); },
@@ -186,7 +192,7 @@ export async function createMechanics(options = {}) {
       entry.boost = new THREE.Vector3(); entry.inputVelocity = new THREE.Vector3();
       Object.defineProperties(handle, {
         /** World velocity from walking, pushes and the vertical speed (0 while standing). */
-        velocity: { get: () => { const e = requireEntry(handle); return e.inputVelocity.clone().add(e.boost).setY(e.state.grounded && e.state.verticalVelocity <= 0 ? 0 : e.state.verticalVelocity); } },
+        velocity: { get: () => { const e = requireEntry(handle); return readable(e.inputVelocity.clone().add(e.boost).setY(e.state.grounded && e.state.verticalVelocity <= 0 ? 0 : e.state.verticalVelocity)); } },
         /** A new jump press this fixed step that the engine did not use for a ground jump. */
         jumpPressed: { get: () => requireEntry(handle).jumpPressed },
         jumpHeld: { get: () => requireEntry(handle).state.jumpHeld },
