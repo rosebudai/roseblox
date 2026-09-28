@@ -431,7 +431,7 @@ export async function createRpgGame(config) {
       if (!clips.length || !def.animations) return;
       const mixer = new THREE.AnimationMixer(actor.visual ?? actor.root), actions = {};
       for (const [state, name] of Object.entries(def.animations)) { const clip = clips.find(c => c.name === name); if (clip) actions[state] = mixer.clipAction(clip); }
-      mixers.push({ mixer, actions, actor, gone, current: null });
+      mixers.push({ mixer, actions, actor, gone, current: null, at: actor.position.clone(), speed: 0 });
     }
     animate(player, p);
     for (const equipment of p.equipment ?? []) {
@@ -559,6 +559,16 @@ export async function createRpgGame(config) {
     // Hiding also rules out jumping. The engine has no per-player jump switch, so a hop out of
     // hiding is undone in the same fixed step, before it is ever rendered.
     function holdHidden() { if (hidden && player.position.y > hideFeet.y + .05) player.teleport(hideFeet.toArray()); }
+    // Ground speed actually covered each physics step, held between steps; a requested velocity
+    // would walk an actor blocked by a wall in place.
+    function afterStep(stepDt) {
+      holdHidden();
+      for (const item of mixers) {
+        if (item.gone()) continue;
+        const p = item.actor.position;
+        item.speed = Math.hypot(p.x - item.at.x, p.z - item.at.z) / stepDt; item.at.copy(p);
+      }
+    }
     renderer.setAnimationLoop(now => {
       // Allow the fixed-step motor to catch up below 20 FPS; a 50ms cap made
       // jumps and cooldowns take longer in wall time on slower renderers.
@@ -569,16 +579,15 @@ export async function createRpgGame(config) {
       else if (player.active) { captured = true; capturing = 0; }
       else if (captured || (capturing += dt) > 1.5) session.hold("pause");
       if (session.playing) time += dt;
-      world.advance(dt, { paused: !session.playing, beforeStep: step, afterStep: holdHidden });
+      world.advance(dt, { paused: !session.playing, beforeStep: step, afterStep });
       if (session.playing) {
         for (let i = mixers.length - 1; i >= 0; i--) {
           const item = mixers[i];
           // A defeated or collected actor has no body left to read a position from.
           if (item.gone()) { item.mixer.stopAllAction(); mixers.splice(i, 1); continue; }
-          // Body velocity, not rendered-frame displacement: above 60 Hz some frames have no physics step.
+          // Per-step speed, not rendered-frame displacement: above 60 Hz some frames have no physics step.
           // The gap between the walk and idle thresholds keeps a slowing actor from flickering.
-          const velocity = item.actor.body.velocity, speed = Math.hypot(velocity.x, velocity.z);
-          const next = !item.actor.grounded ? "jump" : speed > (item.current === "walk" ? .1 : .3) ? "walk" : "idle";
+          const next = !item.actor.grounded ? "jump" : item.speed > (item.current === "walk" ? .1 : .3) ? "walk" : "idle";
           if (next !== item.current && item.actions[next]) {
             const action = item.actions[next]; item.actions[item.current]?.fadeOut(.15);
             // A clip still fading out continues from where it is instead of restarting.
