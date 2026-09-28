@@ -19,6 +19,7 @@ export async function setupInput(config = {}) {
   const keyMappings = { ...defaultKeyMappings, ...config.keyMappings };
   const keys = new Set();
   const actions = new Set();
+  const pressedActions = new Set();
   const buttons = new Set();
   let mouseX = 0;
   let mouseY = 0;
@@ -28,7 +29,7 @@ export async function setupInput(config = {}) {
     object?.addEventListener(type, listener);
     listeners.push(() => object?.removeEventListener(type, listener));
   };
-  const reset = () => { keys.clear(); actions.clear(); buttons.clear(); };
+  const reset = () => { keys.clear(); actions.clear(); pressedActions.clear(); buttons.clear(); };
   const editable = (element) => element?.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(element?.tagName ?? "");
   const focused = () => target === eventWindow || document?.pointerLockElement === target || document?.activeElement === target || target.contains?.(document?.activeElement);
   const active = (action) => actions.has(action) || [...keys].some((key) => keyMappings[key] === action);
@@ -37,6 +38,8 @@ export async function setupInput(config = {}) {
 
   listen(eventWindow, "keydown", (event) => {
     if (!focused() || editable(event.target) || event.metaKey || event.ctrlKey || event.altKey) return;
+    const action = keyMappings[event.code];
+    if (action && !event.repeat && !active(action)) pressedActions.add(action);
     keys.add(event.code);
     if (keyMappings[event.code]) event.preventDefault();
   });
@@ -62,10 +65,11 @@ export async function setupInput(config = {}) {
 
   return {
     isActionActive: active,
+    consumeActionPress: action => pressedActions.delete(action),
     isKeyDown: (code) => keys.has(code),
     setAction(action, enabled) {
       if (disposed) return;
-      if (enabled) actions.add(action); else actions.delete(action);
+      if (enabled) { if (!active(action)) pressedActions.add(action); actions.add(action); } else actions.delete(action);
     },
     getMousePosition: () => ({ x: mouseX, y: mouseY }),
     isMouseDown: (button = 0) => buttons.has(button),

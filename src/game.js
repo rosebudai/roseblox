@@ -2,6 +2,7 @@ import * as THREE from "three";
 import CameraControls from "camera-controls";
 import { createCameraModels } from "./cameraModels.js";
 import { GameSystems } from "./gameSystems.js";
+import { moveCharacter, createCapsuleController, capsuleSpawnClearance } from "./characterMotor.js";
 import { createTransform } from "./components/transform.js";
 import { createModelAttachments } from "./modelAttachments.js";
 import { createFirstPersonCamera, firstPersonOptions } from "./firstPersonCamera.js";
@@ -10,8 +11,6 @@ import { createEnvironment } from "./environment.js";
 import { createSurfaceMaterials } from "./surfaceMaterials.js";
 import { setBloom } from "./bloom.js";
 import { getPresentationTransform, resetPresentationTransform } from "./presentationTransform.js";
-
-const PLAYER_SKIN = 0.02;
 
 /**
  * Create an independent browser game with rendering, fixed-step physics and input.
@@ -75,29 +74,9 @@ export async function createGame(options = {}) {
           body.setNextKinematicRotation(playerRotation);
         }
         const jumpDown = control.enabled && control.jumpSpeed > 0 && input.isActionActive("jump");
-        if (control.grounded && jumpDown && !control.jumpHeld) control.verticalVelocity = control.jumpSpeed;
-        else if (control.grounded && control.verticalVelocity <= 0) control.verticalVelocity = -0.5;
-        else control.verticalVelocity += physics.world.gravity.y * dt;
-        control.jumpHeld = jumpDown;
         const speed = control.enabled && input.isActionActive("run") ? control.runSpeed : control.speed;
-        controller.computeColliderMovement(collider, {
-          x: direction.x * speed * dt,
-          y: control.verticalVelocity * dt,
-          z: direction.z * speed * dt,
-        }, physics.RAPIER.QueryFilterFlags.EXCLUDE_SENSORS);
-        const delta = controller.computedMovement();
-        if (control.verticalVelocity > 0) {
-          for (let i = 0; i < controller.numComputedCollisions(); i++) {
-            // Underside contacts cancel the jump; side walls still allow upward sliding.
-            if (controller.computedCollision(i)?.normal1.y < -0.01) {
-              control.verticalVelocity = 0;
-              break;
-            }
-          }
-        }
-        const position = body.translation();
-        body.setNextKinematicTranslation({ x: position.x + delta.x, y: position.y + delta.y, z: position.z + delta.z });
-        control.grounded = controller.computedGrounded();
+        direction.multiplyScalar(speed);
+        moveCharacter({ physics, body, collider, controller, state: control, velocity: direction, jumpDown, jumpSpeed: control.jumpSpeed }, dt);
       }
     },
   });
@@ -121,18 +100,9 @@ export async function createGame(options = {}) {
         if (![desired.x, desired.y, desired.z].every(Number.isFinite)) {
           throw new Error("Character velocity must contain three finite numbers");
         }
-        if (motion.grounded && motion.verticalVelocity <= 0) motion.verticalVelocity = -0.5;
-        else motion.verticalVelocity += physics.world.gravity.y * dt;
         const { rigidBody: body, collider, controller } = entity.physicsBody;
-        controller.computeColliderMovement(collider, {
-          x: (motion.enabled ? desired.x : 0) * dt,
-          y: (motion.verticalVelocity + (motion.enabled ? desired.y : 0)) * dt,
-          z: (motion.enabled ? desired.z : 0) * dt,
-        }, physics.RAPIER.QueryFilterFlags.EXCLUDE_SENSORS);
-        const delta = controller.computedMovement();
-        const position = body.translation();
-        body.setNextKinematicTranslation({ x: position.x + delta.x, y: position.y + delta.y, z: position.z + delta.z });
-        motion.grounded = controller.computedGrounded();
+        playerDirection.copy(desired).multiplyScalar(motion.enabled ? 1 : 0);
+        moveCharacter({ physics, body, collider, controller, state: motion, velocity: playerDirection }, dt);
       }
     },
   });
@@ -288,18 +258,12 @@ export async function createGame(options = {}) {
 
   function controlledCapsule(config) {
     const spawnClearance = nonNegative(config.spawnClearance ??
-      PLAYER_SKIN + Math.max(0, -physics.world.gravity.y) * engine.fixedTimeStep ** 2 + 0.01, "spawnClearance");
+      capsuleSpawnClearance(physics, engine.fixedTimeStep), "spawnClearance");
     const position = vector(config.position ?? [0, 2, 0]);
     position.y += spawnClearance;
     const entity = addShape("capsule", { ...config, position, body: "kinematic" });
     try {
-      const controller = physics.world.createCharacterController(PLAYER_SKIN);
-      entity.physicsBody.controller = controller;
-      controller.enableAutostep(0.3, 0.2, false);
-      // Rapier snap-to-ground can push a capsule into broad flat floors.
-      // Gravity maintains contact; clearance is applied only at spawn/reset.
-      controller.disableSnapToGround();
-      controller.setApplyImpulsesToDynamicBodies(true);
+      entity.physicsBody.controller = createCapsuleController(physics);
       return { entity, spawnClearance };
     } catch (error) {
       engine.world.remove(entity);
