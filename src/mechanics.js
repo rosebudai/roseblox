@@ -469,7 +469,7 @@ export async function createMechanics(options = {}) {
     const offset = e.controller.offset(), slope = e.controller.maxSlopeClimbAngle(), flattest = Math.cos(slope) - 1e-3;
     const start = { x: t.x, y: t.y - e.collider.halfHeight() + lift, z: t.z };
     const riding = e.floors, touch = skip => {
-      const hit = world.castShape(start, identity, down, ball, 0, 2 * lift + inset, false, RAPIER.QueryFilterFlags.EXCLUDE_SENSORS, undefined, e.collider, undefined, skip && (c => c.handle !== skip));
+      const hit = world.castShape(start, identity, down, ball, 0, 2 * lift + inset, false, RAPIER.QueryFilterFlags.EXCLUDE_SENSORS, undefined, e.collider, undefined, skip === undefined ? undefined : c => c.handle !== skip);
       const centre = hit && { x: start.x, y: start.y - hit.time_of_impact, z: start.z };
       return { hit, n: hit?.normal2, centre, face: hit && faceAt(e, hit.collider, centre, hit.normal2) };
     };

@@ -363,21 +363,22 @@ test("a lift stopping under a ceiling does not push its rider through it", async
 });
 
 test("a rider walking into a steep face rising with its lift stays standing on the lift", async t => {
-  for (const degrees of [50, 60, 80]) {
+  // Without the fixture ground the face is the world's first collider, whose handle is 0.
+  for (const [degrees, ground] of [[50, true], [60, true], [80, true], [50, false]]) {
     const lean = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 0, 1), degrees * Math.PI / 180);
     const at = new THREE.Vector3(1, -.25, 0).applyQuaternion(lean).add(new THREE.Vector3(1.2, 1.25, 0));
     let face;
     const { world, player, built: lift } = await standing(t, [.5, 1.3, 0], world => {
       face = world.addBody({ type: "kinematic", shape: { type: "box", size: [2, .5, 4] }, position: at.toArray(), quaternion: lean.toArray() });
       return world.addBody({ type: "kinematic", shape: { type: "box", size: [4, .5, 4] }, position: [0, 1, 0] });
-    });
+    }, ground);
     player.setAxis(.5, 0);
     let gap = 0, air = 0;
     for (let i = 1; i <= 60; i++) world.advance(1 / 60, {
       beforeStep: () => { lift.moveTo([0, 1 + i / 60, 0]); face.moveTo([at.x, at.y + i / 60, at.z], lean.toArray()); },
       afterStep: () => { gap = Math.max(gap, player.position.y - (1.25 + i / 60)); if (!player.grounded) air++; },
     });
-    assert.ok(gap < .05 && air === 0 && player.position.x < 1.2, `${degrees}°: stays on the lift (up to ${gap} above it, airborne ${air} steps, x ${player.position.x})`);
+    assert.ok(gap < .05 && air === 0 && player.position.x < 1.2, `${degrees}°${ground ? "" : ", face first"}: stays on the lift (up to ${gap} above it, airborne ${air} steps, x ${player.position.x})`);
   }
 });
 
