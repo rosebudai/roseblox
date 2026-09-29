@@ -310,6 +310,73 @@ test("a rider keeps one contact with its descending floor until it walks off", a
   assert.deepEqual(events, ["end"]);
 });
 
+/** A world with `build(world)` bodies, over fixed ground unless `ground` is false, and a started, settled player. */
+async function standing(t, feet, build, ground = true) {
+  const world = ground ? await fixture(t) : await createWorld({ interpolate: false });
+  if (!ground) t.after(() => world.dispose());
+  const built = build(world);
+  const player = await world.addPlayer({ ...surface(true), model: hero(), feet });
+  player.start(); advance(world, .5);
+  return { world, player, built };
+}
+
+test("a kinematic face too steep to climb stops a character, and a steep kinematic slope sheds it, as fixed ones do", async t => {
+  for (const degrees of [50, 70]) {
+    const reached = {};
+    for (const type of ["fixed", "kinematic"]) {
+      const lean = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 0, 1), degrees * Math.PI / 180);
+      const toe = new THREE.Vector3(-1.5, .25, 0).applyQuaternion(lean);
+      const { world, player } = await standing(t, [-1.5, 0, 0], world => world.addBody({ type, shape: { type: "box", size: [3, .5, 4] }, position: [-toe.x, -toe.y, 0], quaternion: lean.toArray() }));
+      player.setAxis(.5, 0); advance(world, 3);
+      reached[type] = player.position.x;
+    }
+    assert.ok(reached.kinematic < 0 && Math.abs(reached.kinematic - reached.fixed) < .05, `${degrees}° face: stops at ${reached.kinematic}, fixed at ${reached.fixed}`);
+  }
+  const tilt = new THREE.Quaternion(), axis = new THREE.Vector3(0, 0, 1);
+  const { world, player, built: slab } = await standing(t, [1, 5.25, 0], world => world.addBody({ type: "kinematic", shape: { type: "box", size: [8, .5, 8] }, position: [0, 5, 0] }));
+  for (let i = 1; i <= 60; i++) world.advance(1 / 60, { beforeStep: () => slab.moveTo([0, 5, 0], tilt.setFromAxisAngle(axis, i / 60 * 50 * Math.PI / 180).toArray()) });
+  const start = player.position.clone();
+  advance(world, 2);
+  assert.ok(player.position.y < start.y - .3, `slides down a 50° slope (${player.position.y - start.y})`);
+});
+
+test("a platform moving beside fixed ground does not carry a character standing on the ground", async t => {
+  for (const at of [i => [2, -.5, i * 2 / 60], i => [2 + i / 60, -.5, 0]]) {
+    const { world, player, built: slab } = await standing(t, [-.2, 0, 0], world => {
+      world.addBody({ shape: { type: "box", size: [10, 1, 10] }, position: [-5, -.5, 0] });
+      return world.addBody({ type: "kinematic", shape: { type: "box", size: [4, 1, 10] }, position: [2, -.5, 0] });
+    }, false);
+    const start = player.position.clone();
+    for (let i = 1; i <= 60; i++) world.advance(1 / 60, { beforeStep: () => slab.moveTo(at(i)) });
+    assert.ok(player.position.distanceTo(start) < .05, `stays put (moved ${player.position.distanceTo(start)})`);
+  }
+});
+
+test("a lift stopping under a ceiling does not push its rider through it", async t => {
+  const { world, player, built: lift } = await standing(t, [0, 1.3, 0], world => {
+    world.addBody({ shape: { type: "box", size: [10, .3, 10] }, position: [0, 4.15, 0] });
+    return world.addBody({ type: "kinematic", shape: { type: "box", size: [4, .5, 4] }, position: [0, 1, 0] });
+  });
+  let highest = -Infinity;
+  for (let i = 1; i <= 180; i++) world.advance(1 / 60, { beforeStep: () => lift.moveTo([0, Math.min(1 + i / 60, 3), 0]), afterStep: () => { highest = Math.max(highest, player.position.y); } });
+  assert.ok(highest + 1.8 < 4.05, `the head stays under the ceiling (feet up to ${highest})`);
+});
+
+test("a character stands over a kinematic platform's edge and walks off it as off a fixed one", async t => {
+  const hang = {}, drop = {};
+  for (const type of ["fixed", "kinematic"]) {
+    const edge = world => world.addBody({ type, shape: { type: "box", size: [4, .5, 4] }, position: [0, 5, 0] });
+    const idle = await standing(t, [2.22, 5.3, 0], edge);
+    advance(idle.world, 1.5);
+    hang[type] = { y: idle.player.position.y, grounded: idle.player.grounded };
+    const walker = await standing(t, [1, 5.3, 0], edge);
+    walker.player.setAxis(.05, 0);
+    for (let i = 0; i < 600 && drop[type] === undefined; i++) walker.world.advance(1 / 60, { afterStep: () => { if (walker.player.position.y < 5.15) drop[type] = walker.player.position.x; } });
+  }
+  assert.ok(Math.abs(hang.kinematic.y - hang.fixed.y) < .01 && hang.kinematic.grounded === hang.fixed.grounded, `hangs as on fixed ground (${JSON.stringify(hang)})`);
+  assert.ok(Math.abs(drop.kinematic - drop.fixed) < .05, `drops off at ${drop.kinematic}, fixed at ${drop.fixed}`);
+});
+
 test("player position, velocity, forward, their clones and ray hits read as .x or [0], like the [x, y, z] inputs", async t => {
   const { world, player } = await playing(t);
   player.setAxis(1, 0); advance(world, .2);
