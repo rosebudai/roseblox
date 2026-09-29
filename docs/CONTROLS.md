@@ -75,8 +75,9 @@ Player: `start()`, `stop()`, `pause()`, `resume()`, `jump()`, `teleport([x,y,z])
 - Read input in `afterStep`. `jumpPressed` is true for one step when Jump is pressed and
   the engine did not use it for a ground jump (for example in mid-air); `jumpHeld` is true
   while it is down.
-- Kinematic bodies carry a player standing on them, whether moved with `moveTo` or
-  `teleport`.
+- Kinematic bodies carry a player or NPC standing on them, whether moved with `moveTo` or
+  `teleport`, including descending, sloped and turning ones; characters walk on them as on
+  fixed ground.
 
 ## Models
 

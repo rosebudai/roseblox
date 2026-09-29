@@ -172,6 +172,144 @@ for (const mover of ["teleport", "moveTo"]) test(`a kinematic platform moved wit
   assert.equal(player.grounded, true);
 });
 
+// Kinematic floors: Rapier's character controller alone stalls walking on them and loses a descending one.
+async function rider(t, { platform = { size: [20, .5, 10], position: [0, 20, 0] }, feet = [0, 20.3, 0], ground = true } = {}) {
+  const world = await createWorld({ interpolate: false }); t.after(() => world.dispose());
+  if (ground) world.addBody({ shape: { type: "box", size: [100, 1, 100] }, position: [0, -.5, 0] });
+  const floor = world.addBody({ type: "kinematic", shape: { type: "box", size: platform.size }, position: platform.position, quaternion: platform.quaternion });
+  const player = await world.addPlayer({ ...surface(true), model: hero(), feet });
+  player.start(); advance(world, .5);
+  return { world, floor, player };
+}
+/** Runs `frames` steps, moving each kinematic body in `moves` to `at(i)` before step i, and counts airborne steps. */
+function ride(world, player, frames, moves, afterStep) {
+  let air = 0;
+  for (let i = 1; i <= frames; i++) world.advance(1 / 60, {
+    beforeStep: () => { for (const [body, at] of moves) body.moveTo(at(i)); },
+    afterStep: () => { if (!player.grounded) air++; afterStep?.(i); },
+  });
+  return air;
+}
+const sinking = (y, speed = 2) => i => [0, y - i * speed / 60, 0];
+
+for (const [label, at] of [["still", null], ["moved in place", () => [0, 20, 0]], ["moving sideways", i => [i / 60, 20, 0]], ["rising", i => [0, 20 + i / 60, 0]], ["descending", sinking(20, 1)]]) test(`walking on a kinematic floor that is ${label} covers normal ground`, async t => {
+  const { world, floor, player } = await rider(t), start = player.position.x;
+  player.setAxis(.5, 0);
+  const air = ride(world, player, 60, at ? [[floor, at]] : []);
+  const walked = player.position.x - start - (at ? at(60)[0] : 0);
+  assert.ok(walked > 2.3, `walks about 2.5 m in a second at half speed (${walked})`);
+  assert.equal(air, 0);
+});
+
+test("a rider walks off a descending platform's edge and falls, and walks off once it stops", async t => {
+  const { world, floor, player } = await rider(t, { platform: { size: [4, .5, 4], position: [0, 20, 0] } });
+  let y = 20, fell = false;
+  player.setAxis(1, 0);
+  ride(world, player, 40, [[floor, i => [0, y = 20 - i * 2 / 60, 0]]], () => { if (player.position.x > 2.5 && player.position.y < y - .5) fell = true; });
+  assert.ok(fell, `drops past the platform once off its edge (x ${player.position.x})`);
+
+  const lift = await rider(t, { platform: { size: [4, .5, 4], position: [0, 5, 0] }, feet: [0, 5.3, 0] });
+  ride(lift.world, lift.player, 60, [[lift.floor, sinking(5)]]);
+  const start = lift.player.position.x;
+  lift.player.setAxis(.5, 0);
+  ride(lift.world, lift.player, 120, [[lift.floor, () => [0, 3, 0]]]);
+  assert.ok(lift.player.position.x - start > 4, `walks off the stopped elevator (${lift.player.position.x - start})`);
+  assert.ok(lift.player.position.y < .1, `lands on the ground (${lift.player.position.y})`);
+});
+
+test("a jump from a descending platform rises as high as one from the ground", async t => {
+  const { world, floor, player } = await rider(t, { platform: { size: [20, .5, 20], position: [0, 30, 0] }, feet: [0, 30.3, 0] });
+  let frame = 0;
+  const move = [[floor, () => [0, 30 - ++frame * 3 / 60, 0]]];
+  ride(world, player, 20, move);
+  assert.equal(player.grounded, true);
+  const takeoff = player.position.y;
+  let top = -Infinity;
+  player.setAction("jump", true);
+  ride(world, player, 2, move, () => { top = Math.max(top, player.position.y); });
+  player.setAction("jump", false);
+  ride(world, player, 60, move, () => { top = Math.max(top, player.position.y); });
+  assert.ok(top - takeoff > .9, `jumps about a metre (${top - takeoff})`);
+});
+
+test("walls beside a descending platform stop its rider without lifting or sinking it", async t => {
+  for (const wallType of ["fixed", "kinematic"]) {
+    const { world, floor, player } = await rider(t);
+    // A fixed wall spans the whole descent; a kinematic one is the platform's own wall, moving with it.
+    const wall = world.addBody({ type: wallType, ...wallType === "fixed" ? { shape: { type: "box", size: [1, 40, 10] }, position: [3, 20, 0] } : { shape: { type: "box", size: [1, 3, 10] }, position: [3, 21.75, 0] } });
+    let y = 20, low = Infinity, high = -Infinity;
+    player.setAxis(1, 0);
+    const air = ride(world, player, 90, [[floor, i => [0, y = 20 - i * 2 / 60, 0]], ...wallType === "kinematic" ? [[wall, i => [3, 21.75 - i * 2 / 60, 0]]] : []], () => {
+      const gap = player.position.y - (y + .25); low = Math.min(low, gap); high = Math.max(high, gap);
+    });
+    assert.equal(air, 0, wallType);
+    assert.ok(low > -.01 && high < .05, `${wallType} wall: stays on the floor (gap ${low} to ${high})`);
+    assert.ok(player.position.x < 2.5, `${wallType} wall: stops at the wall (${player.position.x})`);
+  }
+});
+
+test("two riders pushing each other on a descending platform both stay grounded", async t => {
+  const { world, floor, player } = await rider(t, { platform: { size: [20, .5, 20], position: [0, 20, 0] } });
+  const other = await world.addPlayer({ ...surface(true), model: hero(), feet: [2, 20.3, 0] });
+  other.start(); advance(world, .1);
+  let otherAir = 0;
+  player.setAxis(.5, 0);
+  const air = ride(world, player, 90, [[floor, sinking(20)]], () => { if (!other.grounded) otherAir++; });
+  assert.equal(air, 0); assert.equal(otherAir, 0);
+});
+
+test("a rider crosses the seam between two platforms moving together", async t => {
+  const { world, floor, player } = await rider(t, { platform: { size: [2, .5, 4], position: [-1, 20, 0] }, feet: [-1, 20.3, 0] });
+  const next = world.addBody({ type: "kinematic", shape: { type: "box", size: [2, .5, 4] }, position: [1, 20, 0] });
+  player.setAxis(.5, 0);
+  const air = ride(world, player, 60, [[floor, i => [-1, 20 - i * 2 / 60, 0]], [next, i => [1, 20 - i * 2 / 60, 0]]]);
+  assert.ok(player.position.x > 1, `crosses onto the second platform (${player.position.x})`);
+  assert.equal(air, 0);
+});
+
+test("a platform moving diagonally or turning carries its rider along", async t => {
+  const diagonal = await rider(t), start = diagonal.player.position.clone();
+  diagonal.player.setAxis(0, -.5);
+  const air = ride(diagonal.world, diagonal.player, 60, [[diagonal.floor, i => [i * 2 / 60, 20 - i / 60, 0]]]);
+  const moved = diagonal.player.position.clone().sub(start);
+  assert.ok(Math.abs(moved.x - 2) < .1 && Math.abs(moved.y + 1) < .05, `rides 2 m across and 1 m down (${moved.x}, ${moved.y})`);
+  assert.equal(air, 0);
+
+  const { world, floor, player } = await rider(t, { platform: { size: [10, .5, 10], position: [0, 1, 0] }, feet: [3, 1.3, 0] });
+  const spin = new THREE.Quaternion(), up = new THREE.Vector3(0, 1, 0);
+  let radius = 0;
+  for (let i = 1; i <= 90; i++) world.advance(1 / 60, { beforeStep: () => floor.moveTo([0, 1, 0], spin.setFromAxisAngle(up, i / 60)), afterStep: () => { radius = Math.max(radius, Math.abs(Math.hypot(player.position.x, player.position.z) - 3)); } });
+  const angle = Math.atan2(-player.position.z, player.position.x);
+  assert.ok(Math.abs(angle - 1.5) < .05, `turns 1.5 rad with the turntable (${angle})`);
+  assert.ok(radius < .05, `keeps its distance from the axis (off by ${radius})`);
+});
+
+test("a rider stays grounded on a sloped descending platform and on a ledge beside one", async t => {
+  for (const degrees of [10, 20]) {
+    const tilt = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 0, 1), degrees * Math.PI / 180);
+    const { world, floor, player } = await rider(t, { platform: { size: [20, .5, 20], position: [0, 30, 0], quaternion: tilt.toArray() }, feet: [0, 30.5, 0] });
+    player.setAxis(0, 1);
+    assert.equal(ride(world, player, 60, [[floor, sinking(30)]]), 0, `${degrees}° slope`);
+  }
+  const { world, floor, player } = await rider(t, { platform: { size: [4, .5, 4], position: [-2, 10, 0] }, feet: [0, 10.3, 0] });
+  world.addBody({ shape: { type: "box", size: [4, .5, 4] }, position: [2, 10, 0] });
+  const air = ride(world, player, 60, [[floor, i => [-2, 10 - i * 2 / 60, 0]]]);
+  assert.equal(air, 0);
+  assert.ok(Math.abs(player.position.y - 10.25) < .05, `stays on the ledge as the platform drops (${player.position.y})`);
+});
+
+test("a rider keeps one contact with its descending floor until it walks off", async t => {
+  const { world, floor, player } = await rider(t, { platform: { size: [4, .5, 4], position: [0, 20, 0] } });
+  const events = []; world.onCollision(e => { if ([e.a, e.b].includes(player.body) && [e.a, e.b].includes(floor)) events.push(e.type); });
+  let frame = 0;
+  const move = [[floor, () => [0, 20 - ++frame * 2 / 60, 0]]];
+  ride(world, player, 30, move);
+  assert.deepEqual(events, [], "the contact made on landing holds while riding");
+  player.setAxis(1, 0);
+  ride(world, player, 60, move);
+  assert.deepEqual(events, ["end"]);
+});
+
 test("player position, velocity, forward, their clones and ray hits read as .x or [0], like the [x, y, z] inputs", async t => {
   const { world, player } = await playing(t);
   player.setAxis(1, 0); advance(world, .2);
