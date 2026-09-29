@@ -1,5 +1,5 @@
 /** Shared capsule motion; input and scene ownership stay with the caller. */
-export function moveCharacter({ physics, body, collider, controller, state, velocity, jumpDown = false, jumpSpeed = 0, carry }, dt) {
+export function moveCharacter({ physics, body, collider, controller, state, velocity, jumpDown = false, jumpSpeed = 0 }, dt) {
   if (state.grounded && jumpDown && !state.jumpHeld) state.verticalVelocity = jumpSpeed;
   else if (state.grounded && state.verticalVelocity <= 0) state.verticalVelocity = -0.5;
   else state.verticalVelocity += physics.world.gravity.y * dt;
@@ -20,9 +20,7 @@ export function moveCharacter({ physics, body, collider, controller, state, velo
     }
   }
   const position = body.translation();
-  // `carry` is the support's own motion this step, added after collision so the rider moves with it.
-  const c = carry ?? { x: 0, y: 0, z: 0 };
-  body.setNextKinematicTranslation({ x: position.x + delta.x + c.x, y: position.y + delta.y + c.y, z: position.z + delta.z + c.z });
+  body.setNextKinematicTranslation({ x: position.x + delta.x, y: position.y + delta.y, z: position.z + delta.z });
   state.grounded = controller.computedGrounded();
 }
 

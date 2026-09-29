@@ -55,7 +55,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `createGame` disposes its initialized engine when later setup fails.
 - A GLTF renderable whose asset was not preloaded shows a red wireframe placeholder with a console warning again, instead of stopping the game.
 - Character controls: removing an animated NPC through its body handle (for example `castRay(...).body.remove()`) no longer crashes every frame.
-- Character controls: a player riding a descending `moveTo` platform, straight down or diagonally, stays grounded, is carried with it and can jump; a ledge beside the platform still holds a rider standing on it.
 - Character controls: an unrelated `pointercancel`, or `teleport()`, no longer drops held keys, joystick or touch buttons.
 - Character controls: tapping the game's own HTML buttons no longer pauses touch play through a synthetic `mouseleave`.
 - Character controls: `player.remove()` after `world.dispose()` no longer throws for touch players.

@@ -172,43 +172,6 @@ for (const mover of ["teleport", "moveTo"]) test(`a kinematic platform moved wit
   assert.equal(player.grounded, true);
 });
 
-test("a descending moveTo platform keeps its rider grounded, so Jump still works", async t => {
-  const world = await fixture(t), browser = surface(true);
-  const platform = world.addBody({ type: "kinematic", shape: { type: "box", size: [4, .5, 4] }, position: [0, 20, 0] });
-  const player = await world.addPlayer({ ...browser, model: hero(), feet: [0, 20.3, 0] });
-  player.start(); advance(world, .5);
-  let y = 20, air = 0, unused = 0, rose = false;
-  const ride = steps => { for (let i = 0; i < steps; i++) world.advance(1 / 60, { beforeStep: () => platform.moveTo([0, y -= 3 / 60, 0]), afterStep: () => { if (!player.grounded) air++; if (player.jumpPressed) unused++; if (player.velocity.y > 3) rose = true; } }); };
-  ride(30);
-  assert.equal(air, 0, "the rider never leaves the platform");
-  assert.ok(Math.abs(player.position.y - (y + .25)) < .05, `the rider stays on the platform (${player.position.y - y})`);
-  player.setAction("jump", true); ride(2); player.setAction("jump", false);
-  assert.ok(rose, "the jump is used"); assert.equal(unused, 0, "a used jump is not reported as jumpPressed");
-});
-
-test("a platform descending diagonally carries its rider sideways too", async t => {
-  const world = await fixture(t), browser = surface(true);
-  const platform = world.addBody({ type: "kinematic", shape: { type: "box", size: [4, .5, 4] }, position: [0, 20, 0] });
-  const player = await world.addPlayer({ ...browser, model: hero(), feet: [0, 20.3, 0] });
-  player.start(); advance(world, .5);
-  const start = player.position.clone();
-  let air = 0;
-  for (let i = 1; i <= 60; i++) world.advance(1 / 60, { beforeStep: () => platform.moveTo([i * 2 / 60, 20 - i / 60, 0]), afterStep: () => { if (!player.grounded) air++; } });
-  const moved = player.position.clone().sub(start);
-  assert.ok(Math.abs(moved.x - 2) < .1, `rides sideways (${moved.x})`);
-  assert.equal(air, 0, "the rider never leaves the platform");
-});
-
-test("a rider standing on a ledge is not dragged into it by a platform dropping beside it", async t => {
-  const world = await fixture(t), browser = surface(true);
-  world.addBody({ type: "fixed", shape: { type: "box", size: [4, 2, 4] }, position: [-2, 1, 0] });
-  const platform = world.addBody({ type: "kinematic", shape: { type: "box", size: [4, .5, 4] }, position: [2, 1.75, 0] });
-  const player = await world.addPlayer({ ...browser, model: hero(), feet: [.1, 2.05, 0] });
-  player.start(); advance(world, .5);
-  for (let i = 1; i <= 60; i++) world.advance(1 / 60, { beforeStep: () => platform.moveTo([2, 1.75 - i / 60, 0]) });
-  assert.ok(player.position.y > 1.9, `the ledge still holds the rider (${player.position.y})`);
-});
-
 test("player position, velocity, forward, their clones and ray hits read as .x or [0], like the [x, y, z] inputs", async t => {
   const { world, player } = await playing(t);
   player.setAxis(1, 0); advance(world, .2);
