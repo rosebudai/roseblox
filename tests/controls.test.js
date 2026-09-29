@@ -199,6 +199,35 @@ test("a platform descending diagonally carries its rider sideways too", async t 
   assert.equal(air, 0, "the rider never leaves the platform");
 });
 
+test("a rider keeps walking across a descending platform and falls once off its edge", async t => {
+  const world = await fixture(t), browser = surface(true);
+  const platform = world.addBody({ type: "kinematic", shape: { type: "box", size: [20, .5, 10] }, position: [0, 20, 0] });
+  const player = await world.addPlayer({ ...browser, model: hero(), feet: [0, 20.3, 0] });
+  player.start(); advance(world, .5);
+  const start = player.position.clone();
+  let y = 20, air = 0;
+  const ride = steps => { for (let i = 0; i < steps; i++) world.advance(1 / 60, { beforeStep: () => platform.moveTo([0, y -= 2 / 60, 0]), afterStep: () => { if (!player.grounded) air++; } }); };
+  player.setAxis(.5, 0); ride(60);
+  assert.ok(Math.abs(player.position.x - start.x - 2.5) < .1, `walks while the platform descends (${player.position.x - start.x})`);
+  assert.equal(air, 0, "the rider never leaves the platform");
+  assert.ok(Math.abs(player.position.y - (y + .25)) < .05, `the rider stays on the platform (${player.position.y - y})`);
+  player.setAxis(1, 0); ride(90);
+  assert.ok(player.position.x > 10.5, `walks off the edge (${player.position.x})`);
+  assert.ok(player.position.y < y - 1, `falls once past the edge (${player.position.y - y})`);
+});
+
+test("a wall still stops a rider walking on a descending platform", async t => {
+  const world = await fixture(t), browser = surface(true);
+  world.addBody({ type: "fixed", shape: { type: "box", size: [1, 40, 10] }, position: [3, 20, 0] });
+  const platform = world.addBody({ type: "kinematic", shape: { type: "box", size: [20, .5, 10] }, position: [0, 20, 0] });
+  const player = await world.addPlayer({ ...browser, model: hero(), feet: [0, 20.3, 0] });
+  player.start(); advance(world, .5);
+  player.setAxis(1, 0);
+  for (let i = 1; i <= 60; i++) world.advance(1 / 60, { beforeStep: () => platform.moveTo([0, 20 - i * 2 / 60, 0]) });
+  assert.ok(player.position.x < 2.5 - .3, `the wall holds the rider (${player.position.x})`);
+  assert.ok(player.position.x > 1.5, `the rider reaches the wall (${player.position.x})`);
+});
+
 test("a rider standing on a ledge is not dragged into it by a platform dropping beside it", async t => {
   const world = await fixture(t), browser = surface(true);
   world.addBody({ type: "fixed", shape: { type: "box", size: [4, 2, 4] }, position: [-2, 1, 0] });

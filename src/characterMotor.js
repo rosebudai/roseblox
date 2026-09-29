@@ -1,14 +1,17 @@
 /** Shared capsule motion; input and scene ownership stay with the caller. */
-export function moveCharacter({ physics, body, collider, controller, state, velocity, jumpDown = false, jumpSpeed = 0, carry }, dt) {
+export function moveCharacter({ physics, body, collider, controller, state, velocity, jumpDown = false, jumpSpeed = 0, carry, support }, dt) {
   if (state.grounded && jumpDown && !state.jumpHeld) state.verticalVelocity = jumpSpeed;
   else if (state.grounded && state.verticalVelocity <= 0) state.verticalVelocity = -0.5;
   else state.verticalVelocity += physics.world.gravity.y * dt;
   state.jumpHeld = jumpDown;
+  // `carry` is the step of the descending `support` collider under the rider. Pressing into a
+  // moving floor stalls Rapier's slide, so a rider moves with the support in one sweep that skips it.
+  const ride = carry && support && state.verticalVelocity <= 0 && velocity.y <= 0 ? carry : null;
   controller.computeColliderMovement(collider, {
-    x: velocity.x * dt,
-    y: (state.verticalVelocity + velocity.y) * dt,
-    z: velocity.z * dt,
-  }, physics.RAPIER.QueryFilterFlags.EXCLUDE_SENSORS);
+    x: velocity.x * dt + (ride?.x ?? 0),
+    y: ride ? ride.y : (state.verticalVelocity + velocity.y) * dt,
+    z: velocity.z * dt + (ride?.z ?? 0),
+  }, physics.RAPIER.QueryFilterFlags.EXCLUDE_SENSORS, undefined, ride ? c => c !== support && c.handle !== support.handle : undefined);
   const delta = controller.computedMovement();
   if (state.verticalVelocity > 0) {
     for (let i = 0; i < controller.numComputedCollisions(); i++) {
@@ -20,10 +23,8 @@ export function moveCharacter({ physics, body, collider, controller, state, velo
     }
   }
   const position = body.translation();
-  // `carry` is the support's own motion this step, added after collision so the rider moves with it.
-  const c = carry ?? { x: 0, y: 0, z: 0 };
-  body.setNextKinematicTranslation({ x: position.x + delta.x + c.x, y: position.y + delta.y + c.y, z: position.z + delta.z + c.z });
-  state.grounded = controller.computedGrounded();
+  body.setNextKinematicTranslation({ x: position.x + delta.x, y: position.y + delta.y, z: position.z + delta.z });
+  state.grounded = !!ride || controller.computedGrounded();
 }
 
 export function createCapsuleController(physics) {

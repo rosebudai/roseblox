@@ -371,27 +371,23 @@ export async function createMechanics(options = {}) {
       }
       e.inputVelocity.set(desired.x, 0, desired.z);
       desired.add(e.boost);
-      ride.set(0, 0, 0);
+      let lift;
       if (e.state.grounded) {
         // A platform teleported this step carries its rider the same distance.
-        const support = supportUnder(e)?.body, prop = support && entries.get(support), carry = prop?.carry;
+        const under = supportUnder(e), support = under?.body, prop = support && entries.get(support), carry = prop?.carry;
         if (carry && carry.lengthSq() > 0 && carry.lengthSq() < 1) {
           e.body.setTranslation(vector(e.body.translation()).add(carry), true);
           world.propagateModifiedBodyPositionsToColliders();
         }
         // Rapier lifts a rider with a rising moveTo platform but loses it on a descent:
-        // carry the platform's whole step then, swept so a ledge or wall still blocks it.
-        if (prop && !prop.state && prop.body.isKinematic()) {
+        // the rider then moves with the whole step of a level platform, and a ledge or wall still blocks it.
+        if (prop && !prop.state && prop.body.isKinematic() && under.normal.y > .99) {
           ride.copy(prop.body.nextTranslation()).sub(prop.body.translation());
-          if (ride.y < 0 && ride.lengthSq() < 1) {
-            const own = prop.collider;
-            e.controller.computeColliderMovement(e.collider, ride, RAPIER.QueryFilterFlags.EXCLUDE_SENSORS, undefined, c => c !== own && c.handle !== own.handle);
-            ride.copy(e.controller.computedMovement());
-          } else ride.set(0, 0, 0);
+          if (ride.y < 0 && ride.lengthSq() < 1) lift = prop.collider;
         }
       }
       const wasHeld = e.state.jumpHeld, wasGrounded = e.state.grounded;
-      moveCharacter({ physics, body: e.body, collider: e.collider, controller: e.controller, state: e.state, velocity: desired, jumpDown, jumpSpeed: e.jumpSpeed ?? 0, carry: ride }, dt);
+      moveCharacter({ physics, body: e.body, collider: e.collider, controller: e.controller, state: e.state, velocity: desired, jumpDown, jumpSpeed: e.jumpSpeed ?? 0, carry: lift && ride, support: lift }, dt);
       e.jumpPressed = jumpDown && !wasHeld && !(wasGrounded && (e.jumpSpeed ?? 0) > 0);
       e.boost.multiplyScalar(Math.exp(-(e.state.grounded ? 10 : 1.5) * dt));
       if (e.boost.lengthSq() < 1e-6) e.boost.set(0, 0, 0);
