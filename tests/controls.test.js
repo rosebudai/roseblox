@@ -57,6 +57,19 @@ test("createWorld players default to captured-mouse controls and movement facing
   assert.ok(fitModel);
 });
 
+for (const view of ["third", "first"]) test(`a ${view}-person player or NPC without a model stands in as a capsule`, async t => {
+  const world = await fixture(t), browser = surface(true);
+  const player = await world.addPlayer({ ...browser, model: undefined, feet: [0, 0, 0], height: 1.7, view });
+  const npc = world.addNpc({ feet: [3, 0, 0] });
+  for (const actor of [player, npc]) {
+    const size = new THREE.Box3().setFromObject(actor.visual).getSize(new THREE.Vector3());
+    assert.ok(Math.abs(size.y - (actor === player ? 1.7 : 1.8)) < .01, `fitted to its height (${size.y})`);
+  }
+  player.start(); player.setAxis(1, 0); advance(world, .5);
+  assert.ok(player.position.x > .5, "the stand-in player moves");
+  player.remove(); npc.remove();
+});
+
 for (const view of ["third", "first"]) test(`${view}-person look() turns the view only while playing`, async t => {
   const world = await fixture(t), browser = surface(true);
   const player = await world.addPlayer({ ...browser, model: hero(), view });
@@ -227,6 +240,29 @@ function riggedHero(names = ["Idle", "Walk", "Run", "Jump_Loop", "Wave"]) {
   const clip = (name, duration = 1) => new THREE.AnimationClip(name, duration, [new THREE.VectorKeyframeTrack("Body.scale", [0, duration], [1, 1, 1, 1, 1, 1])]);
   return { scene, animations: names.map(name => clip(name, name === "Wave" ? .5 : 1)) };
 }
+
+test("several NPCs share one skinned glTF, each with its own clone, skeleton and clips", async t => {
+  const world = await fixture(t);
+  const bone = new THREE.Bone(); bone.name = "Hips";
+  const geometry = new THREE.BoxGeometry(.6, 1.8, .4), count = geometry.attributes.position.count;
+  geometry.setAttribute("skinIndex", new THREE.Uint16BufferAttribute(new Array(count * 4).fill(0), 4));
+  geometry.setAttribute("skinWeight", new THREE.Float32BufferAttribute(Array.from({ length: count * 4 }, (_, i) => i % 4 ? 0 : 1), 4));
+  const mesh = new THREE.SkinnedMesh(geometry, new THREE.MeshStandardMaterial());
+  const scene = new THREE.Group(); scene.add(bone, mesh); mesh.bind(new THREE.Skeleton([bone]));
+  const walk = new THREE.AnimationClip("Walk", 1, [new THREE.VectorKeyframeTrack("Hips.position", [0, 1], [0, 0, 0, 0, .1, 0])]);
+  const gltf = { scene, animations: [new THREE.AnimationClip("Idle", 1, walk.tracks), walk] };
+  const npcs = [0, 1, 2].map(i => world.addNpc({ model: gltf, feet: [i * 2, 0, 0] }));
+  const skinned = npcs.map(npc => { let found; npc.visual.traverse(o => { if (o.isSkinnedMesh) found = o; }); return found; });
+  assert.equal(new Set(skinned).size, 3, "every NPC draws its own mesh");
+  for (const mesh of skinned) {
+    let root = mesh; while (root.parent) root = root.parent;
+    let ancestor = mesh.skeleton.bones[0]; while (ancestor.parent) ancestor = ancestor.parent;
+    assert.equal(ancestor, root, "the skeleton's bones live in that NPC's own model");
+  }
+  for (const npc of npcs) assert.ok(npc.mixer instanceof THREE.AnimationMixer);
+  npcs.forEach(npc => npc.setVelocity([2, 0, 0])); advance(world, .3);
+  assert.deepEqual(npcs.map(npc => npc.animation), ["walk", "walk", "walk"]);
+});
 
 test("a player given a glTF with movement clips plays idle, walk, run and in-air automatically", async t => {
   const { world, player } = await playing(t, { model: riggedHero() });
