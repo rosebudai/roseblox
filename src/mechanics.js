@@ -52,7 +52,7 @@ export async function createMechanics(options = {}) {
   const entries = new Map(), colliders = new Map(), contacts = new Map(), listeners = new Set(), changedColliders = new Set();
   let nextId = 1, accumulator = 0, disposed = false, paused = false, advancing = false;
   const diagnostics = { frames: 0, fixedSteps: 0, simulatedSeconds: 0, droppedSeconds: 0, negativeDeltaFrames: 0 };
-  const forward = new THREE.Vector3(), right = new THREE.Vector3(), desired = new THREE.Vector3(), ride = new THREE.Vector3();
+  const forward = new THREE.Vector3(), right = new THREE.Vector3(), desired = new THREE.Vector3();
   const heading = new THREE.Quaternion(), parentRotation = new THREE.Quaternion();
   const live = () => { if (disposed) throw new Error("Mechanics is disposed."); };
   function requireEntry(handle) {
@@ -371,27 +371,16 @@ export async function createMechanics(options = {}) {
       }
       e.inputVelocity.set(desired.x, 0, desired.z);
       desired.add(e.boost);
-      ride.set(0, 0, 0);
       if (e.state.grounded) {
         // A platform teleported this step carries its rider the same distance.
-        const support = supportUnder(e)?.body, prop = support && entries.get(support), carry = prop?.carry;
+        const support = supportUnder(e)?.body, carry = support && entries.get(support)?.carry;
         if (carry && carry.lengthSq() > 0 && carry.lengthSq() < 1) {
           e.body.setTranslation(vector(e.body.translation()).add(carry), true);
           world.propagateModifiedBodyPositionsToColliders();
         }
-        // Rapier lifts a rider with a rising moveTo platform but loses it on a descent:
-        // carry the platform's whole step then, swept so a ledge or wall still blocks it.
-        if (prop && !prop.state && prop.body.isKinematic()) {
-          ride.copy(prop.body.nextTranslation()).sub(prop.body.translation());
-          if (ride.y < 0 && ride.lengthSq() < 1) {
-            const own = prop.collider;
-            e.controller.computeColliderMovement(e.collider, ride, RAPIER.QueryFilterFlags.EXCLUDE_SENSORS, undefined, c => c !== own && c.handle !== own.handle);
-            ride.copy(e.controller.computedMovement());
-          } else ride.set(0, 0, 0);
-        }
       }
       const wasHeld = e.state.jumpHeld, wasGrounded = e.state.grounded;
-      moveCharacter({ physics, body: e.body, collider: e.collider, controller: e.controller, state: e.state, velocity: desired, jumpDown, jumpSpeed: e.jumpSpeed ?? 0, carry: ride }, dt);
+      moveCharacter({ physics, body: e.body, collider: e.collider, controller: e.controller, state: e.state, velocity: desired, jumpDown, jumpSpeed: e.jumpSpeed ?? 0 }, dt);
       e.jumpPressed = jumpDown && !wasHeld && !(wasGrounded && (e.jumpSpeed ?? 0) > 0);
       e.boost.multiplyScalar(Math.exp(-(e.state.grounded ? 10 : 1.5) * dt));
       if (e.boost.lengthSq() < 1e-6) e.boost.set(0, 0, 0);
