@@ -49,11 +49,13 @@ export async function createMechanics(options = {}) {
   // A single CCD pass discards remaining travel at mesh-road contacts, causing
   // visible slowdown despite a high reported chassis speed. Work stays bounded.
   world.integrationParameters.maxCcdSubsteps = maxCcdSubsteps;
-  const entries = new Map(), colliders = new Map(), contacts = new Map(), listeners = new Set(), changedColliders = new Set();
+  const entries = new Map(), colliders = new Map(), contacts = new Map(), listeners = new Set(), changedColliders = new Set(), kinematicProps = new Set();
   let nextId = 1, accumulator = 0, disposed = false, paused = false, advancing = false;
   const diagnostics = { frames: 0, fixedSteps: 0, simulatedSeconds: 0, droppedSeconds: 0, negativeDeltaFrames: 0 };
-  const forward = new THREE.Vector3(), right = new THREE.Vector3(), desired = new THREE.Vector3();
-  const heading = new THREE.Quaternion(), parentRotation = new THREE.Quaternion();
+  const forward = new THREE.Vector3(), right = new THREE.Vector3(), desired = new THREE.Vector3(), ride = new THREE.Vector3();
+  const heading = new THREE.Quaternion(), parentRotation = new THREE.Quaternion(), turn = new THREE.Quaternion(), nextTurn = new THREE.Quaternion();
+  const identity = { x: 0, y: 0, z: 0, w: 1 }, still = { x: 0, y: 0, z: 0 }, down = { x: 0, y: -1, z: 0 }, up = { x: 0, y: 1, z: 0 };
+  const faceRay = new RAPIER.Ray({ x: 0, y: 0, z: 0 }, down);
   const live = () => { if (disposed) throw new Error("Mechanics is disposed."); };
   function requireEntry(handle) {
     live();
@@ -97,7 +99,7 @@ export async function createMechanics(options = {}) {
   function remove(handle) {
     const entry = entries.get(handle);
     if (!entry) return;
-    entries.delete(handle); colliders.delete(entry.collider.handle); changedColliders.delete(entry.collider);
+    entries.delete(handle); colliders.delete(entry.collider.handle); changedColliders.delete(entry.collider); kinematicProps.delete(entry);
     entry.fps?.dispose(); entry.third?.dispose(); entry.vehicle?.dispose(); entry.input?.dispose();
     for (const object of entry.bindings) if (visualOwners.get(object) === entry) visualOwners.delete(object);
     entry.bindings.clear();
@@ -136,6 +138,7 @@ export async function createMechanics(options = {}) {
     try { collider = world.createCollider(descriptor, body); }
     catch (error) { world.removeRigidBody(body); throw error; }
     const entry = { body, collider, position, quaternion, previousPosition: position.clone(), previousRotation: quaternion.clone(), renderPosition: position.clone(), renderRotation: quaternion.clone(), bindings: new Set(), controller: null, state: null, fps: null, input: null };
+    if (type === "kinematic") kinematicProps.add(entry);
     const handle = {
       id: nextId++, data: config.data ?? {},
       get position() { return readable(requireEntry(handle).position.clone()); },
@@ -189,7 +192,7 @@ export async function createMechanics(options = {}) {
     try {
       const entry = entries.get(handle);
       entry.controller = createCapsuleController(physics);
-      entry.state = { enabled: true, grounded: false, verticalVelocity: 0, jumpHeld: false };
+      entry.state = { enabled: true, grounded: false, verticalVelocity: 0, jumpHeld: false }; kinematicProps.delete(entry);
       entry.velocity = vector(config.velocity); entry.spawnClearance = spawnClearance;
       entry.forwardAxis = forwardAxis; entry.autoFaceMovement = config.autoFaceMovement === true;
       entry.jumpSpeed = jumpSpeed; entry.jumpRequested = false; entry.jumpPressed = false;
@@ -336,6 +339,9 @@ export async function createMechanics(options = {}) {
         const c = entry.controller.computedCollision(i)?.collider, other = c && colliders.get(c.handle);
         if (other && !c.isSensor()) current.set(contactKey(entry.handle, other), { a: entry.handle, b: other });
       }
+      // A rider's sweep skips the floor it rides, so report the floor it was settled on instead.
+      const floor = entry.riding && entry.standingOn && colliders.get(entry.standingOn.handle);
+      if (floor) current.set(contactKey(entry.handle, floor), { a: entry.handle, b: floor });
     }
     for (const [key, pair] of [...contacts]) if (!current.has(key)) { contacts.delete(key); notify("end", pair); }
     for (const [key, pair] of current) if (!contacts.has(key) && entries.has(pair.a) && entries.has(pair.b)) { contacts.set(key, pair); notify("start", pair); }
@@ -371,6 +377,7 @@ export async function createMechanics(options = {}) {
       }
       e.inputVelocity.set(desired.x, 0, desired.z);
       desired.add(e.boost);
+      let floors;
       if (e.state.grounded) {
         // A platform teleported this step carries its rider the same distance.
         const support = supportUnder(e)?.body, carry = support && entries.get(support)?.carry;
@@ -378,18 +385,130 @@ export async function createMechanics(options = {}) {
           e.body.setTranslation(vector(e.body.translation()).add(carry), true);
           world.propagateModifiedBodyPositionsToColliders();
         }
+        // Rapier's controller stalls walking on a kinematic floor, so ride one here instead; a jump of a metre
+        // or more in one step is a teleport, which the carry above already handled.
+        const under = kinematicProps.size ? kinematicFloorsUnder(e, support) : [];
+        // Standing on fixed ground or a character, it still sweeps past kinematic floors under its rim, which would
+        // stall it at the seam, but is not carried by them.
+        const aside = support && !kinematicProps.has(entries.get(support)) && !entries.get(support)?.body.isDynamic();
+        if (under.length && (aside ? ride.set(0, 0, 0) : stepAt(under[0].body, feetOf(e), ride)).lengthSq() < 1) floors = under.map(prop => prop.collider);
       }
+      if (floors) { const at = e.body.translation(); (e.carried ??= new THREE.Vector3()).set(at.x + ride.x, at.y + ride.y, at.z + ride.z); }
       const wasHeld = e.state.jumpHeld, wasGrounded = e.state.grounded;
-      moveCharacter({ physics, body: e.body, collider: e.collider, controller: e.controller, state: e.state, velocity: desired, jumpDown, jumpSpeed: e.jumpSpeed ?? 0 }, dt);
+      e.riding = moveCharacter({ physics, body: e.body, collider: e.collider, controller: e.controller, state: e.state, velocity: desired, jumpDown, jumpSpeed: e.jumpSpeed ?? 0, floors, carry: ride }, dt);
+      e.floors = e.riding ? floors : null;
+      // How far settling reaches: the ride's step, plus any rise past it (a step up, or a push from something touching).
+      if (e.riding) e.rideReach = ride.length() + Math.max(0, e.body.nextTranslation().y - e.body.translation().y - ride.y);
       e.jumpPressed = jumpDown && !wasHeld && !(wasGrounded && (e.jumpSpeed ?? 0) > 0);
       e.boost.multiplyScalar(Math.exp(-(e.state.grounded ? 10 : 1.5) * dt));
       if (e.boost.lengthSq() < 1e-6) e.boost.set(0, 0, 0);
     }
     for (const e of entries.values()) e.carry?.set(0, 0, 0);
     world.timestep = dt; world.step(eventQueue);
+    let settled = false;
+    for (const e of entries.values()) if (e.riding) { settle(e); settled = true; }
+    if (settled) world.propagateModifiedBodyPositionsToColliders();
     changedColliders.clear();
     for (const e of entries.values()) readPose(e);
     processContacts();
+  }
+  function feetOf(e) {
+    const t = e.body.translation();
+    return { x: t.x, y: t.y - e.collider.halfHeight() - e.collider.radius(), z: t.z };
+  }
+  /** How far a kinematic body's next pose carries `point` this step, including its turn. */
+  function stepAt(body, point, out) {
+    const p = body.translation(), q = body.rotation(), n = body.nextRotation();
+    turn.set(q.x, q.y, q.z, q.w).invert().premultiply(nextTurn.set(n.x, n.y, n.z, n.w));
+    return out.set(point.x - p.x, point.y - p.y, point.z - p.z).applyQuaternion(turn).add(body.nextTranslation()).sub(point);
+  }
+  /**
+   * Walkable kinematic props under a character's feet, the one under its centre first. None when its centre stands
+   * on a kinematic prop too steep to walk on.
+   */
+  function kinematicFloorsUnder(e, centre) {
+    const feet = feetOf(e), found = [];
+    // A disc just inside the capsule's footprint, from 5 cm above the feet to 15 cm below.
+    e.footprint ??= new RAPIER.Cylinder(.1, e.collider.radius() * .95);
+    world.intersectionsWithShape({ x: feet.x, y: feet.y - .05, z: feet.z }, identity, e.footprint, collider => {
+      const prop = entries.get(colliders.get(collider.handle));
+      if (kinematicProps.has(prop) && walkable(e, collider)) found.push(prop);
+      return true;
+    }, RAPIER.QueryFilterFlags.EXCLUDE_SENSORS, undefined, e.collider);
+    if (centre && kinematicProps.has(entries.get(centre)) && !found.some(prop => prop.handle === centre)) return [];
+    return found.sort((a, b) => (b.handle === centre) - (a.handle === centre));
+  }
+  /** A ball narrower than the capsule, which finds floors without catching walls or characters touching its side. */
+  function soleOf(e) {
+    const inset = e.collider.radius() * .2;
+    e.sole ??= { ball: new RAPIER.Ball(e.collider.radius() - inset), inset };
+    return e.sole;
+  }
+  /** Whether a kinematic collider under a character is ground it can stand on. */
+  function walkable(e, collider) {
+    const t = e.body.translation(), { ball, inset } = soleOf(e);
+    const start = { x: t.x, y: t.y - e.collider.halfHeight() + .1, z: t.z };
+    const hit = collider.castShape(still, ball, start, identity, down, 0, .3 + inset, false);
+    if (!hit || hit.time_of_impact <= 0) return false;
+    const flattest = Math.cos(e.controller.maxSlopeClimbAngle()) - 1e-3;
+    return -hit.normal2.y >= flattest || faceAt(e, collider, { x: start.x, y: start.y - hit.time_of_impact, z: start.z }, hit.normal2)?.y >= flattest;
+  }
+  /**
+   * The normal of the face of `collider` that the sole ball, centred at `centre`, touches along its own outward
+   * normal `n`. Past an edge the ball meets the edge at a slant, so this reads the face just beyond the touch.
+   */
+  function faceAt(e, collider, centre, n) {
+    const r = soleOf(e).ball.radius, across = Math.hypot(n.x, n.z), nudge = across > 1e-6 ? .02 / across : 0;
+    faceRay.origin = { x: centre.x + n.x * (r + nudge), y: centre.y + n.y * r + .05, z: centre.z + n.z * (r + nudge) };
+    const face = collider.castRayAndGetNormal(faceRay, .1, true);
+    return face && face.timeOfImpact > 0 ? face.normal : null;
+  }
+  /** After a ride, stands the rider on the floor under it, undoing any sink or gap, or lets it fall past an edge. */
+  function settle(e) {
+    const t = e.body.translation(), lift = .1 + e.rideReach, { ball, inset } = soleOf(e), r = ball.radius;
+    const offset = e.controller.offset(), slope = e.controller.maxSlopeClimbAngle(), flattest = Math.cos(slope) - 1e-3;
+    const start = { x: t.x, y: t.y - e.collider.halfHeight() + lift, z: t.z };
+    const riding = e.floors, touch = skip => {
+      const hit = world.castShape(start, identity, down, ball, 0, 2 * lift + inset, false, RAPIER.QueryFilterFlags.EXCLUDE_SENSORS, undefined, e.collider, undefined, skip && (c => c.handle !== skip));
+      const centre = hit && { x: start.x, y: start.y - hit.time_of_impact, z: start.z };
+      return { hit, n: hit?.normal2, centre, face: hit && faceAt(e, hit.collider, centre, hit.normal2) };
+    };
+    let { hit, n, centre, face } = touch();
+    // Past a face too steep to stand on that it presses into, besides the floors it rides, to the floor under it.
+    if (hit && !riding.some(f => f.handle === hit.collider.handle) && -n.y < flattest && !(face?.y >= flattest)) ({ hit, n, centre, face } = touch(hit.collider.handle));
+    // normal2 is the ball's own outward normal at the contact. The rider stands on a climbable face, or on an edge
+    // no further out than Rapier's controller grounds a capsule resting its offset away from it.
+    const reach = e.collider.radius() + offset, across = hit ? Math.hypot(n.x, n.z) * r : 0;
+    const floor = hit && n.y < 0 && across <= reach * Math.sin(slope) + 1e-3 && (-n.y >= flattest || face?.y >= flattest) ? hit : null;
+    e.state.grounded = !!floor; e.standingOn = floor?.collider;
+    if (!floor) return;
+    // On a face the capsule rests the inset plus the offset further out along its normal than the ball touches;
+    // on an edge its lower sphere rests the radius plus the offset from the edge.
+    const onFace = !face || face.x * -n.x + face.y * -n.y + face.z * -n.z > .999;
+    let y = e.collider.halfHeight() + (onFace ? centre.y + (inset + offset) / -n.y : centre.y + n.y * r + Math.sqrt(reach * reach - across * across));
+    const dy = y - t.y;
+    if (Math.abs(dy) > 1e-4) {
+      // Move only as far as anything but the floors it rides allows: a ceiling over a stopping lift, or a short
+      // character it stepped onto. A slightly slimmer capsule ignores walls touching its side.
+      e.hull ??= new RAPIER.Capsule(e.collider.halfHeight() + .03, e.collider.radius() - .03);
+      const room = world.castShape(t, identity, dy > 0 ? up : down, e.hull, 0, Math.abs(dy) + offset, false, RAPIER.QueryFilterFlags.EXCLUDE_SENSORS, undefined, e.collider, undefined, c => !riding.some(f => f.handle === c.handle));
+      const allowed = room ? Math.max(0, room.time_of_impact - offset) : Math.abs(dy);
+      // Held up by a face too steep to stand on (one it walked into as it rose with the floor): slide down that face,
+      // away from it, if nothing else is in the way; otherwise leave it to fall.
+      if (dy < 0 && allowed < -dy - 1e-3 && -room.normal2.y < flattest) {
+        const m = room.normal2, rest = -dy - allowed, k = rest * m.y / (m.x * m.x + m.z * m.z);
+        const from = { x: t.x, y: t.y - allowed, z: t.z }, path = new THREE.Vector3(k * m.x, -rest, k * m.z), span = path.length();
+        const blocked = world.castShape(from, identity, path.divideScalar(span), e.hull, 0, span, false, RAPIER.QueryFilterFlags.EXCLUDE_SENSORS, undefined, e.collider, undefined, c => !riding.some(f => f.handle === c.handle));
+        if (blocked && blocked.time_of_impact < span - 1e-3) { e.state.grounded = false; e.standingOn = null; return; }
+        e.body.setTranslation({ x: from.x + k * m.x, y, z: from.z + k * m.z }, true);
+        return;
+      }
+      // Too low to stand up on (a ramp running under a ceiling): stay where the floor alone carried it, as Rapier
+      // stops a walk into a gap it cannot fit.
+      if (dy > 0 && allowed < dy - 1e-3) { e.body.setTranslation({ x: e.carried.x, y: t.y + allowed, z: e.carried.z }, true); return; }
+      y = t.y + Math.sign(dy) * allowed;
+    }
+    e.body.setTranslation({ x: t.x, y, z: t.z }, true);
   }
   function supportUnder(e) {
     const t = e.body.translation(), feet = e.collider.halfHeight() + e.collider.radius();

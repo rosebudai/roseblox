@@ -59,6 +59,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Character controls: tapping the game's own HTML buttons no longer pauses touch play through a synthetic `mouseleave`.
 - Character controls: `player.remove()` after `world.dispose()` no longer throws for touch players.
 - Character controls: `addPlayer`/`addNpc` without a `model` (for example after a failed asset load) use a plain capsule instead of throwing "Pass a detached Three.js model instance."
+- Character controls: players and NPCs walk normally on kinematic bodies, whether still, moved with `moveTo`, descending, sloped or turning. Rapier's controller swapped the character's motion into a kinematic floor for the floor's own, which stalled walking on it and left riders airborne on a descending one; a rider now moves with the floor and is set back down on it after each step.
 - Character controls: passing the same (skinned) glTF to several `addNpc`/`addPlayer` calls gives each actor its own clone with rebound skeleton and clips instead of throwing.
 - Character controls: cloned vectors and `castRay` `point`/`normal` read as `v[0]`, `v[1]`, `v[2]` like other engine vectors.
 - RPG template: walk/idle clips follow body velocity, so they no longer flicker or restart above 60 Hz.
